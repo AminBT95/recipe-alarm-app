@@ -9,6 +9,9 @@
   <activity android:name=".CookingActivity" />
   <activity android:name=".DetailActivity" />
   <activity android:name=".AdminActivity" />
+  <activity android:name=".ShoppingActivity" />
+  <activity android:name=".SettingsActivity" />
+  <activity android:name=".FavoritesActivity" />
   <activity android:name=".EditRecipeActivity" />
   <activity android:name=".MainActivity" android:exported="true">
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>

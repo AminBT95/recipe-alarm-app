@@ -1,20 +1,15 @@
-# Recette Alarm Pro
+# Recette Alarm Pro V5
 
-Application Android native Java pour enregistrer des recettes, ingrédients, étapes, mode cuisine et alarmes anti-brûlure.
+Application Android native Java pour recettes avec mode Anti-Brûlure.
 
-## Fonctions incluses
-- Recettes dynamiques sauvegardées en SQLite local
-- Ingrédients avec quantités et unités
-- Étapes avec durée et note sécurité
-- Mode cuisine avec écran toujours allumé
-- Alarmes Android exactes, vibration, sonnerie et notification plein écran
-- Rappel +5 minutes
-- Admin simple: ajouter/modifier recettes, ingrédients, étapes
-- Liste de courses automatique à partager
+## V5
+- Listing recettes en grille 2 colonnes proche des maquettes
+- Menu burger avec rubriques de l'app
+- Paramètres alarmes et unités
+- Liste de courses par recette : cocher ce qu'on possède, exporter seulement ce qui manque
+- Favoris
+- UI/UX plus compacte
+- Images, vidéos multiples, ratings, degrés, liquides et conversions
 
-## Générer APK avec GitHub
-1. Uploader tout le contenu dans le repository.
-2. Créer aussi `.github/workflows/android.yml` si GitHub ne l'a pas uploadé.
-3. Aller dans **Actions**.
-4. Lancer **Build Android APK**.
-5. Télécharger l'artifact `RecetteAlarm-debug-apk`.
+## Build APK
+GitHub Actions > Build Android APK > Run workflow > Artifacts > app-debug.apk
