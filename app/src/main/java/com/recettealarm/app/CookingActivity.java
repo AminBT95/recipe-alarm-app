@@ -1,6 +1,119 @@
-package com.recettealarm.app;import android.app.*;import android.content.*;import android.database.*;import android.os.*;import android.view.*;import android.widget.*;import java.util.*;
-public class CookingActivity extends Activity{DB db;ArrayList<long[]> ids=new ArrayList<>();ArrayList<String[]> txt=new ArrayList<>();int idx=0;TextView timer,desc,note;CountDownTimer cd;long rid;public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);db=new DB(this);rid=getIntent().getLongExtra("id",0);Cursor c=db.steps(rid);while(c.moveToNext()){ids.add(new long[]{c.getLong(0),c.getInt(4)});txt.add(new String[]{c.getString(3),c.getString(6)});}c.close();draw();}
- void draw(){LinearLayout r=UI.root(this);r.addView(UI.tv(this,"Mode Cuisine Anti-Brûlure",24,1));timer=UI.tv(this,"00:00",60,1);desc=UI.tv(this,"",25,1);note=UI.tv(this,"",18,0);r.addView(timer);r.addView(desc);r.addView(note);Button start=UI.btn(this,"Démarrer / Relancer");Button next=UI.btn(this,"Étape Suivante");Button plus=UI.btn(this,"+5 minutes");r.addView(start);r.addView(next);r.addView(plus);start.setOnClickListener(v->startStep(ids.get(idx)[1]));next.setOnClickListener(v->{if(cd!=null)cd.cancel();idx++;if(idx>=ids.size()){UI.toast(this,"Recette terminée ✅");finish();}else showStep();});plus.setOnClickListener(v->startStep(5));showStep();}
- void showStep(){desc.setText(txt.get(idx)[0]);note.setText("⚠ Note : "+txt.get(idx)[1]);timer.setText(String.format(Locale.FRANCE,"%02d:00",ids.get(idx)[1]));}
- void startStep(int minutes){long ms=minutes*60_000L;AlarmReceiver.schedule(this,ms,txt.get(idx)[1],"Étape "+(idx+1));if(cd!=null)cd.cancel();cd=new CountDownTimer(ms,1000){public void onTick(long m){timer.setText(String.format(Locale.FRANCE,"%02d:%02d",m/60000,(m/1000)%60));}public void onFinish(){timer.setText("00:00");startActivity(new Intent(CookingActivity.this,AlarmActivity.class).putExtra("note",txt.get(idx)[1]).putExtra("title","Temps écoulé !"));}}.start();}
+package com.recettealarm.app;
+
+import android.app.*;
+import android.content.*;
+import android.database.*;
+import android.os.*;
+import android.view.*;
+import android.widget.*;
+import java.util.*;
+
+public class CookingActivity extends Activity {
+    DB db;
+    ArrayList<long[]> ids = new ArrayList<>();
+    ArrayList<String[]> txt = new ArrayList<>();
+    int idx = 0;
+    TextView timer, desc, note;
+    CountDownTimer cd;
+    long rid;
+
+    public void onCreate(Bundle b) {
+        super.onCreate(b);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        db = new DB(this);
+        rid = getIntent().getLongExtra("id", 0);
+
+        Cursor c = db.steps(rid);
+        while (c.moveToNext()) {
+            ids.add(new long[]{c.getLong(0), c.getInt(4)});
+            txt.add(new String[]{c.getString(3), c.getString(6)});
+        }
+        c.close();
+
+        draw();
+    }
+
+    void draw() {
+        LinearLayout r = UI.root(this);
+
+        r.addView(UI.tv(this, "Mode Cuisine Anti-Brûlure", 24, 1));
+
+        timer = UI.tv(this, "00:00", 60, 1);
+        desc = UI.tv(this, "", 25, 1);
+        note = UI.tv(this, "", 18, 0);
+
+        r.addView(timer);
+        r.addView(desc);
+        r.addView(note);
+
+        Button start = UI.btn(this, "Démarrer / Relancer");
+        Button next = UI.btn(this, "Étape Suivante");
+        Button plus = UI.btn(this, "+5 minutes");
+
+        r.addView(start);
+        r.addView(next);
+        r.addView(plus);
+
+        start.setOnClickListener(v -> startStep((int) ids.get(idx)[1]));
+
+        next.setOnClickListener(v -> {
+            if (cd != null) cd.cancel();
+
+            idx++;
+
+            if (idx >= ids.size()) {
+                UI.toast(this, "Recette terminée ✅");
+                finish();
+            } else {
+                showStep();
+            }
+        });
+
+        plus.setOnClickListener(v -> startStep(5));
+
+        showStep();
+    }
+
+    void showStep() {
+        if (ids.size() == 0) {
+            desc.setText("Aucune étape disponible");
+            note.setText("");
+            timer.setText("00:00");
+            return;
+        }
+
+        desc.setText(txt.get(idx)[0]);
+        note.setText("⚠ Note : " + txt.get(idx)[1]);
+        timer.setText(String.format(Locale.FRANCE, "%02d:00", (int) ids.get(idx)[1]));
+    }
+
+    void startStep(int minutes) {
+        long ms = minutes * 60_000L;
+
+        AlarmReceiver.schedule(this, ms, txt.get(idx)[1], "Étape " + (idx + 1));
+
+        if (cd != null) cd.cancel();
+
+        cd = new CountDownTimer(ms, 1000) {
+            public void onTick(long m) {
+                timer.setText(String.format(
+                        Locale.FRANCE,
+                        "%02d:%02d",
+                        m / 60000,
+                        (m / 1000) % 60
+                ));
+            }
+
+            public void onFinish() {
+                timer.setText("00:00");
+
+                startActivity(
+                        new Intent(CookingActivity.this, AlarmActivity.class)
+                                .putExtra("note", txt.get(idx)[1])
+                                .putExtra("title", "Temps écoulé !")
+                );
+            }
+        }.start();
+    }
 }
