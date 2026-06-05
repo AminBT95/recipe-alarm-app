@@ -1,86 +1,9 @@
 package com.recettealarm.app;
-
-import android.Manifest;
-import android.app.*;
-import android.content.*;
-import android.database.*;
-import android.os.*;
-import android.graphics.Typeface;
-import android.view.*;
-import android.widget.*;
-
-public class MainActivity extends Activity {
-    DB db;
-    LinearLayout root, list;
-
-    public void onCreate(Bundle b) {
-        super.onCreate(b);
-        db = new DB(this);
-        if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 5);
-        draw();
-    }
-
-    public void onResume() {
-        super.onResume();
-        if (list != null) load();
-    }
-
-    void draw() {
-        root = UI.root(this);
-        root.addView(UI.tv(this, "Bonjour Chef ! 👋", 16, Typeface.NORMAL));
-        root.addView(UI.tv(this, "Recette Alarm", 34, Typeface.BOLD));
-        root.addView(UI.tv(this, "Cuisine intelligente avec alarmes anti-brûlure", 15, Typeface.NORMAL));
-
-        EditText search = UI.input(this, "🔎 Rechercher une recette...");
-        root.addView(search);
-
-        HorizontalScrollView hsv = new HorizontalScrollView(this);
-        hsv.setHorizontalScrollBarEnabled(false);
-        LinearLayout chips = new LinearLayout(this);
-        chips.setOrientation(LinearLayout.HORIZONTAL);
-        chips.addView(UI.chip(this, "▦ Tous"));
-        chips.addView(UI.chip(this, "🍲 Tajines"));
-        chips.addView(UI.chip(this, "🍰 Gâteaux"));
-        chips.addView(UI.chip(this, "🥗 Plats"));
-        chips.addView(UI.chip(this, "🥤 Jus"));
-        hsv.addView(chips);
-        root.addView(hsv);
-
-        Button add = UI.btn(this, "+ Nouvelle Recette");
-        root.addView(add);
-        add.setOnClickListener(v -> startActivity(new Intent(this, EditRecipeActivity.class)));
-
-        Button shop = UI.whiteBtn(this, "🛒 Liste de courses automatique");
-        root.addView(shop);
-        shop.setOnClickListener(v -> share(db.shoppingList()));
-
-        root.addView(UI.tv(this, "Vos Recettes", 23, Typeface.BOLD));
-        list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        root.addView(list);
-        load();
-    }
-
-    void load() {
-        list.removeAllViews();
-        Cursor c = db.recipes();
-        while (c.moveToNext()) {
-            long id = c.getLong(c.getColumnIndexOrThrow("id"));
-            String t = c.getString(c.getColumnIndexOrThrow("title"));
-            String cat = c.getString(c.getColumnIndexOrThrow("category"));
-            int time = c.getInt(c.getColumnIndexOrThrow("time"));
-            int serv = c.getInt(c.getColumnIndexOrThrow("servings"));
-            TextView card = UI.card(this, "🍽  " + t + "\n" + cat + "   •   ⏱ " + time + " min   •   👥 " + serv + " pers.");
-            list.addView(card);
-            card.setOnClickListener(v -> startActivity(new Intent(this, DetailActivity.class).putExtra("id", id)));
-        }
-        c.close();
-    }
-
-    void share(String s) {
-        Intent i = new Intent(Intent.ACTION_SEND);
-        i.setType("text/plain");
-        i.putExtra(Intent.EXTRA_TEXT, s);
-        startActivity(Intent.createChooser(i, "Partager"));
-    }
-}
+import android.Manifest;import android.app.*;import android.content.*;import android.database.*;import android.graphics.Typeface;import android.os.*;import android.view.*;import android.widget.*;
+public class MainActivity extends Activity{DB db;LinearLayout root,list;EditText search;String q="";public void onCreate(Bundle b){super.onCreate(b);db=new DB(this);if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},5);draw();}public void onResume(){super.onResume();if(list!=null)load();}
+ void draw(){root=UI.root(this);root.addView(UI.tv(this,"Bonjour Chef ! 👋",16,Typeface.NORMAL));root.addView(UI.tv(this,"Recette Alarm",35,Typeface.BOLD));root.addView(UI.tv(this,"Carnet premium avec alarmes anti-brûlure",15,Typeface.NORMAL));LinearLayout hero=UI.section(this);hero.addView(UI.center(this,"🍳",44,Typeface.BOLD));hero.addView(UI.center(this,"Recettes • Timers • Liste de courses",18,Typeface.BOLD));hero.addView(UI.center(this,"Chaque étape peut sonner, vibrer et afficher une alerte plein écran.",14,Typeface.NORMAL));root.addView(hero);
+ search=UI.input(this,"🔎 Rechercher une recette...");root.addView(search);search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int c){}public void onTextChanged(CharSequence s,int a,int b,int c){q=s.toString().toLowerCase();load();}public void afterTextChanged(android.text.Editable e){}});
+ HorizontalScrollView hsv=new HorizontalScrollView(this);hsv.setHorizontalScrollBarEnabled(false);LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);String[] cs={"▦ Tous","🍲 Tajines","🍰 Gâteaux","🥗 Plats","🥤 Jus","🍞 Pain"};for(String x:cs)chips.addView(UI.chip(this,x));hsv.addView(chips);root.addView(hsv);
+ Button add=UI.btn(this,"+ Nouvelle Recette");root.addView(add);add.setOnClickListener(v->startActivity(new Intent(this,EditRecipeActivity.class)));Button shop=UI.whiteBtn(this,"🛒 Liste de courses automatique");root.addView(shop);shop.setOnClickListener(v->share(db.shoppingList()));root.addView(UI.tv(this,"Vos Recettes",23,Typeface.BOLD));list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);root.addView(list);load();}
+ void load(){list.removeAllViews();Cursor c=db.recipes();while(c.moveToNext()){long id=c.getLong(c.getColumnIndexOrThrow("id"));String t=c.getString(c.getColumnIndexOrThrow("title"));String cat=c.getString(c.getColumnIndexOrThrow("category"));String img=c.getString(c.getColumnIndexOrThrow("image"));int time=c.getInt(c.getColumnIndexOrThrow("time"));int serv=c.getInt(c.getColumnIndexOrThrow("servings"));int rating=c.getInt(c.getColumnIndexOrThrow("rating"));if(q.length()>0&&!t.toLowerCase().contains(q)&&!cat.toLowerCase().contains(q))continue;LinearLayout card=UI.section(this);ImageView iv=UI.image(this,img,150);card.addView(iv);card.addView(UI.tv(this,"🍽  "+t,21,Typeface.BOLD));card.addView(UI.tv(this,cat+"   •   ⏱ "+time+" min   •   👥 "+serv+" pers.",15,Typeface.NORMAL));TextView st=UI.tv(this,UI.stars(rating)+"   •   Appuie pour ouvrir",15,Typeface.BOLD);st.setTextColor(UI.gold);card.addView(st);list.addView(card);card.setOnClickListener(v->startActivity(new Intent(this,DetailActivity.class).putExtra("id",id)));}c.close();}
+ void share(String s){startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,s),"Partager"));}}

@@ -1,152 +1,29 @@
 package com.recettealarm.app;
 
-import android.app.*;
-import android.content.*;
-import android.graphics.*;
-import android.graphics.drawable.*;
-import android.text.InputType;
-import android.view.*;
-import android.widget.*;
+import android.app.*;import android.content.*;import android.graphics.*;import android.graphics.drawable.*;import android.net.*;import android.text.InputType;import android.view.*;import android.widget.*;
 
-public class UI {
-    static int brown = Color.rgb(169, 84, 45);
-    static int dark = Color.rgb(45, 39, 35);
-    static int cream = Color.rgb(255, 250, 244);
-    static int soft = Color.rgb(246, 239, 231);
-    static int olive = Color.rgb(116, 133, 62);
-    static int danger = Color.rgb(194, 30, 30);
-
-    static int dp(Context c, int v) {
-        return (int) (v * c.getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    static GradientDrawable bg(int color, int radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(radius);
-        return g;
-    }
-
-    static GradientDrawable stroke(int color, int radius, int strokeColor) {
-        GradientDrawable g = bg(color, radius);
-        g.setStroke(1, strokeColor);
-        return g;
-    }
-
-    static TextView tv(Context c, String t, int sp, int style) {
-        TextView v = new TextView(c);
-        v.setText(t == null ? "" : t);
-        v.setTextSize(sp);
-        v.setTypeface(Typeface.DEFAULT, style);
-        v.setTextColor(dark);
-        v.setPadding(dp(c, 8), dp(c, 6), dp(c, 8), dp(c, 6));
-        v.setLineSpacing(dp(c, 2), 1.05f);
-        return v;
-    }
-
-    static TextView center(Context c, String t, int sp, int style) {
-        TextView v = tv(c, t, sp, style);
-        v.setGravity(Gravity.CENTER);
-        return v;
-    }
-
-    static Button btn(Context c, String t) {
-        Button b = new Button(c);
-        b.setText(t);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(15);
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        b.setAllCaps(false);
-        b.setPadding(dp(c, 12), dp(c, 12), dp(c, 12), dp(c, 12));
-        b.setBackground(bg(brown, dp(c, 26)));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(c, 58));
-        lp.setMargins(0, dp(c, 8), 0, dp(c, 8));
-        b.setLayoutParams(lp);
-        return b;
-    }
-
-    static Button whiteBtn(Context c, String t) {
-        Button b = btn(c, t);
-        b.setTextColor(dark);
-        b.setBackground(stroke(Color.WHITE, dp(c, 26), Color.rgb(232, 222, 211)));
-        return b;
-    }
-
-    static EditText input(Context c, String h) {
-        EditText e = new EditText(c);
-        e.setHint(h);
-        e.setTextSize(15);
-        e.setSingleLine(false);
-        e.setMinLines(1);
-        e.setTextColor(dark);
-        e.setHintTextColor(Color.rgb(170, 158, 148));
-        e.setPadding(dp(c, 16), dp(c, 10), dp(c, 16), dp(c, 10));
-        e.setBackground(stroke(Color.WHITE, dp(c, 14), Color.rgb(230, 220, 209)));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(c, 7), 0, dp(c, 7));
-        e.setLayoutParams(lp);
-        return e;
-    }
-
-    static EditText number(Context c, String h) {
-        EditText e = input(c, h);
-        e.setInputType(InputType.TYPE_CLASS_NUMBER);
-        return e;
-    }
-
-    static LinearLayout root(Activity a) {
-        ScrollView sv = new ScrollView(a);
-        sv.setFillViewport(true);
-        LinearLayout l = new LinearLayout(a);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setPadding(dp(a, 22), dp(a, 26), dp(a, 22), dp(a, 26));
-        l.setBackgroundColor(cream);
-        sv.addView(l, new ScrollView.LayoutParams(-1, -2));
-        a.setContentView(sv);
-        return l;
-    }
-
-    static LinearLayout section(Context c) {
-        LinearLayout box = new LinearLayout(c);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(c, 18), dp(c, 16), dp(c, 18), dp(c, 16));
-        box.setBackground(stroke(Color.WHITE, dp(c, 28), Color.rgb(238, 228, 217)));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(c, 10), 0, dp(c, 14));
-        box.setLayoutParams(lp);
-        return box;
-    }
-
-    static TextView chip(Context c, String t) {
-        TextView v = center(c, t, 14, Typeface.BOLD);
-        v.setTextColor(Color.WHITE);
-        v.setBackground(bg(brown, dp(c, 40)));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(c, 48));
-        lp.setMargins(0, dp(c, 5), dp(c, 10), dp(c, 8));
-        v.setMinWidth(dp(c, 105));
-        v.setGravity(Gravity.CENTER);
-        v.setLayoutParams(lp);
-        return v;
-    }
-
-    static TextView card(Context c, String t) {
-        TextView v = tv(c, t, 17, Typeface.BOLD);
-        v.setBackground(stroke(Color.WHITE, dp(c, 30), Color.rgb(239, 230, 220)));
-        v.setPadding(dp(c, 22), dp(c, 18), dp(c, 22), dp(c, 18));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(c, 8), 0, dp(c, 10));
-        v.setLayoutParams(lp);
-        return v;
-    }
-
-    static TextView smallCard(Context c, String t) {
-        TextView v = card(c, t);
-        v.setTextSize(15);
-        v.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
-        return v;
-    }
-
-    static void toast(Context c, String s) {
-        Toast.makeText(c, s, Toast.LENGTH_SHORT).show();
-    }
+public class UI{
+ static int terracotta=Color.rgb(181,92,49),terracotta2=Color.rgb(206,118,75),dark=Color.rgb(48,38,32),cream=Color.rgb(255,248,239),soft=Color.rgb(248,238,226),olive=Color.rgb(112,128,67),danger=Color.rgb(190,41,33),gold=Color.rgb(235,169,61);
+ static int dp(Context c,int v){return (int)(v*c.getResources().getDisplayMetrics().density+0.5f);} 
+ static GradientDrawable bg(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(radius);return g;}
+ static GradientDrawable stroke(int color,int radius,int sc){GradientDrawable g=bg(color,radius);g.setStroke(dp(App.ctx,1),sc);return g;}
+ static GradientDrawable grad(int c1,int c2,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{c1,c2});g.setCornerRadius(radius);return g;}
+ static TextView tv(Context c,String t,int sp,int style){TextView v=new TextView(c);v.setText(t==null?"":t);v.setTextSize(sp);v.setTypeface(Typeface.DEFAULT,style);v.setTextColor(dark);v.setPadding(dp(c,6),dp(c,5),dp(c,6),dp(c,5));v.setLineSpacing(dp(c,2),1.08f);return v;}
+ static TextView center(Context c,String t,int sp,int style){TextView v=tv(c,t,sp,style);v.setGravity(Gravity.CENTER);return v;}
+ static Button btn(Context c,String t){Button b=new Button(c);b.setText(t);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setTextSize(15);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setPadding(dp(c,12),dp(c,12),dp(c,12),dp(c,12));b.setBackground(grad(terracotta,terracotta2,dp(c,24)));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(c,56));lp.setMargins(0,dp(c,7),0,dp(c,7));b.setLayoutParams(lp);return b;}
+ static Button whiteBtn(Context c,String t){Button b=btn(c,t);b.setTextColor(dark);b.setBackground(stroke(Color.WHITE,dp(c,24),Color.rgb(236,222,207)));return b;}
+ static Button oliveBtn(Context c,String t){Button b=btn(c,t);b.setBackground(grad(olive,Color.rgb(139,153,82),dp(c,24)));return b;}
+ static EditText input(Context c,String h){EditText e=new EditText(c);e.setHint(h);e.setTextSize(15);e.setTextColor(dark);e.setHintTextColor(Color.rgb(159,143,130));e.setSingleLine(false);e.setMinLines(1);e.setPadding(dp(c,16),dp(c,12),dp(c,16),dp(c,12));e.setBackground(stroke(Color.WHITE,dp(c,18),Color.rgb(236,224,211)));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(c,6),0,dp(c,8));e.setLayoutParams(lp);return e;}
+ static EditText area(Context c,String h){EditText e=input(c,h);e.setMinLines(3);e.setGravity(Gravity.TOP);return e;}
+ static EditText number(Context c,String h){EditText e=input(c,h);e.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);return e;}
+ static LinearLayout root(Activity a){App.ctx=a;ScrollView sv=new ScrollView(a);sv.setFillViewport(true);LinearLayout l=new LinearLayout(a);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(a,20),dp(a,24),dp(a,20),dp(a,28));l.setBackgroundColor(cream);sv.addView(l,new ScrollView.LayoutParams(-1,-2));a.setContentView(sv);return l;}
+ static LinearLayout row(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.HORIZONTAL);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
+ static LinearLayout section(Context c){LinearLayout box=new LinearLayout(c);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(c,18),dp(c,16),dp(c,18),dp(c,16));box.setBackground(stroke(Color.WHITE,dp(c,30),Color.rgb(238,226,213)));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(c,10),0,dp(c,14));box.setLayoutParams(lp);return box;}
+ static TextView chip(Context c,String t){TextView v=center(c,t,14,Typeface.BOLD);v.setTextColor(Color.WHITE);v.setBackground(grad(terracotta,terracotta2,dp(c,40)));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(c,46));lp.setMargins(0,dp(c,5),dp(c,10),dp(c,8));v.setMinWidth(dp(c,104));v.setGravity(Gravity.CENTER);v.setLayoutParams(lp);return v;}
+ static TextView card(Context c,String t){TextView v=tv(c,t,16,Typeface.BOLD);v.setBackground(stroke(Color.WHITE,dp(c,30),Color.rgb(239,228,215)));v.setPadding(dp(c,20),dp(c,17),dp(c,20),dp(c,17));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(c,8),0,dp(c,10));v.setLayoutParams(lp);return v;}
+ static TextView smallCard(Context c,String t){TextView v=card(c,t);v.setTextSize(15);v.setTypeface(Typeface.DEFAULT,Typeface.NORMAL);return v;}
+ static ImageView image(Context c,String uri,int h){ImageView iv=new ImageView(c);iv.setScaleType(ImageView.ScaleType.CENTER_CROP);iv.setBackground(bg(Color.rgb(242,229,214),dp(c,26)));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(c,h));lp.setMargins(0,dp(c,8),0,dp(c,10));iv.setLayoutParams(lp);try{if(uri!=null&&uri.trim().length()>0)iv.setImageURI(Uri.parse(uri));else iv.setImageResource(android.R.drawable.ic_menu_gallery);}catch(Exception e){iv.setImageResource(android.R.drawable.ic_menu_gallery);}return iv;}
+ static String stars(int r){String s="";for(int i=1;i<=5;i++)s+=i<=r?"★":"☆";return s;}
+ static void toast(Context c,String s){Toast.makeText(c,s,Toast.LENGTH_SHORT).show();}
 }
+class App{static Context ctx;}
