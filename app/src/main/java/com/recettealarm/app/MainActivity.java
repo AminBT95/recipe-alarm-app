@@ -1,5 +1,5 @@
 package com.recettealarm.app;
-import android.Manifest;import android.app.*;import android.content.*;import android.database.*;import android.graphics.Typeface;import android.net.*;import android.os.*;import android.provider.Settings;import android.view.*;import android.widget.*;import java.util.*;
+import android.Manifest;import android.graphics.Color;import android.app.*;import android.content.*;import android.database.*;import android.graphics.Typeface;import android.net.*;import android.os.*;import android.provider.Settings;import android.view.*;import android.widget.*;import java.util.*;
 
 public class MainActivity extends Activity{DB db;LinearLayout root,list,chips;EditText search;String q="",category="Tous";String[] cats={"Tous","Tajines","Gâteaux","Plats","Desserts","Jus","Pain","Autres"};TextView statRecipes,statFav,statTime;
  public void onCreate(Bundle b){super.onCreate(b);db=new DB(this);if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},5);askExactAlarm();draw();}
