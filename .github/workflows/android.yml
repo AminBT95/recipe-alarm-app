@@ -74,6 +74,32 @@ jobs:
           manifest.write_text(m)
           PY
 
+
+      - name: Install custom app icon
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import shutil
+          src = Path('assets/icons/app_icon.png')
+          targets = [
+              Path('android/app/src/main/res/mipmap-mdpi/ic_launcher.png'),
+              Path('android/app/src/main/res/mipmap-hdpi/ic_launcher.png'),
+              Path('android/app/src/main/res/mipmap-xhdpi/ic_launcher.png'),
+              Path('android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png'),
+              Path('android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png'),
+          ]
+          if src.exists():
+              for t in targets:
+                  t.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copyfile(src, t)
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          if manifest.exists():
+              m = manifest.read_text()
+              m = m.replace('android:label="recette_alarm_premium"', 'android:label="Recette Alarm"')
+              m = m.replace('android:label="recette_alarm"', 'android:label="Recette Alarm"')
+              manifest.write_text(m)
+          PY
+
       - name: Build APK
         run: flutter build apk --debug
 

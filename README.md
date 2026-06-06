@@ -1,6 +1,5 @@
-# Recette Alarm Premium
+# Recette Alarm — Material 3 Premium
 
-Application Flutter Material 3 pour recettes, étapes de cuisson, alarmes anti-brûlure et liste de courses.
+Version patchée : palette crème/sauge/terracotta, navigation basse moderne, icône app, rubriques complétées, sauvegarde étapes renforcée, courses avec ingrédients manquants.
 
-## Build APK
-GitHub Actions > Build Flutter Android APK > Artifacts > app-debug.apk
+Build APK : GitHub Actions > Build Flutter Android APK.

@@ -24,15 +24,17 @@ Future<void> main() async {
 }
 
 class C {
-  static const cream = Color(0xFFF8F3E8);
-  static const card = Color(0xFFFFFCF6);
-  static const ink = Color(0xFF182421);
-  static const muted = Color(0xFF82796E);
-  static const green = Color(0xFF214E45);
-  static const sage = Color(0xFF8AA89A);
-  static const gold = Color(0xFFE9B949);
-  static const terracotta = Color(0xFFC87855);
-  static const red = Color(0xFFE45050);
+  static const cream = Color(0xFFFBF4EA);
+  static const card = Color(0xFFFFFCF7);
+  static const ink = Color(0xFF1D2622);
+  static const muted = Color(0xFF80756B);
+  static const green = Color(0xFF5C715E);
+  static const sage = Color(0xFF9CAF96);
+  static const gold = Color(0xFFD7A84B);
+  static const terracotta = Color(0xFFB86B4B);
+  static const clay = Color(0xFFE8D3C0);
+  static const blush = Color(0xFFF4E6D8);
+  static const red = Color(0xFFD95D59);
 }
 
 class Ingredient {
@@ -244,13 +246,13 @@ class _RecetteAlarmAppState extends State<RecetteAlarmApp> {
         theme: ThemeData(
           useMaterial3: true,
           scaffoldBackgroundColor: C.cream,
-          colorScheme: ColorScheme.fromSeed(seedColor: C.green, primary: C.green, secondary: C.gold),
-          textTheme: GoogleFonts.manropeTextTheme(),
+          colorScheme: ColorScheme.fromSeed(seedColor: C.green, primary: C.green, secondary: C.terracotta, tertiary: C.gold, surface: C.card),
+          textTheme: GoogleFonts.plusJakartaSansTextTheme().apply(bodyColor: C.ink, displayColor: C.ink),
           appBarTheme: const AppBarTheme(backgroundColor: C.cream, elevation: 0, foregroundColor: C.ink, centerTitle: false),
           navigationBarTheme: NavigationBarThemeData(
             backgroundColor: C.card,
             indicatorColor: C.green.withOpacity(.12),
-            labelTextStyle: WidgetStateProperty.all(const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+            labelTextStyle: WidgetStateProperty.all(const TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
           ),
         ),
         home: MainShell(store: store),
@@ -274,8 +276,8 @@ class _MainShellState extends State<MainShell> {
     final pages = [
       HomePage(store: widget.store, onAdd: () => openEditor(context, widget.store)),
       ShoppingPage(store: widget.store),
-      StatsPage(store: widget.store),
-      SettingsPage(store: widget.store),
+      FavoritesPage(store: widget.store),
+      MorePage(store: widget.store),
     ];
     return Scaffold(
       body: IndexedStack(index: index, children: pages),
@@ -287,13 +289,13 @@ class _MainShellState extends State<MainShell> {
             borderRadius: BorderRadius.circular(28),
             child: NavigationBar(
               selectedIndex: index,
-              height: 72,
+              height: 66,
               onDestinationSelected: (i) => setState(() => index = i),
               destinations: const [
-                NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Accueil'),
-                NavigationDestination(icon: Icon(Icons.shopping_bag_outlined), selectedIcon: Icon(Icons.shopping_bag), label: 'Courses'),
-                NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'Stats'),
-                NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Réglages'),
+                NavigationDestination(icon: Icon(Icons.restaurant_menu_outlined), selectedIcon: Icon(Icons.restaurant_menu_rounded), label: 'Recettes'),
+                NavigationDestination(icon: Icon(Icons.shopping_basket_outlined), selectedIcon: Icon(Icons.shopping_basket_rounded), label: 'Courses'),
+                NavigationDestination(icon: Icon(Icons.favorite_outline_rounded), selectedIcon: Icon(Icons.favorite_rounded), label: 'Favoris'),
+                NavigationDestination(icon: Icon(Icons.grid_view_rounded), selectedIcon: Icon(Icons.dashboard_customize_rounded), label: 'Plus'),
               ],
             ),
           ),
@@ -358,7 +360,7 @@ class _HomePageState extends State<HomePage> {
                   crossAxisCount: 2,
                   crossAxisSpacing: 14,
                   mainAxisSpacing: 16,
-                  childAspectRatio: .66,
+                  childAspectRatio: .70,
                 ),
                 delegate: SliverChildBuilderDelegate((_, i) => RecipeCard(store: widget.store, recipe: list[i]), childCount: list.length),
               ),
@@ -376,14 +378,14 @@ class _HomePageState extends State<HomePage> {
             width: 54,
             height: 54,
             decoration: BoxDecoration(color: C.green, borderRadius: BorderRadius.circular(20)),
-            child: const Icon(Icons.restaurant_menu, color: Colors.white),
+            child: const Icon(Icons.local_dining_rounded, color: Colors.white),
           ),
           const SizedBox(width: 14),
           const Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Bonjour Soukaina 👋', style: TextStyle(fontSize: 15, color: C.muted, fontWeight: FontWeight.w800)),
+              Text('Bonjour Soukaina 👋', style: TextStyle(fontSize: 14, color: C.muted, fontWeight: FontWeight.w700)),
               SizedBox(height: 3),
-              Text('Que cuisine-t-on aujourd’hui ?', style: TextStyle(fontSize: 25, height: 1.08, color: C.ink, fontWeight: FontWeight.w900)),
+              Text('Que cuisine-t-on aujourd’hui ?', style: TextStyle(fontSize: 22, height: 1.12, color: C.ink, fontWeight: FontWeight.w800)),
             ]),
           ),
           IconButton.filledTonal(onPressed: () {}, icon: const Icon(Icons.notifications_none_rounded)),
@@ -432,7 +434,7 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(30),
-          gradient: const LinearGradient(colors: [Color(0xFF214E45), Color(0xFF476D5F)]),
+          gradient: const LinearGradient(colors: [Color(0xFF5C715E), Color(0xFF8D7B68)]),
           boxShadow: shadow(),
         ),
         child: Row(children: [
@@ -445,7 +447,7 @@ class _HomePageState extends State<HomePage> {
           ),
           Container(
             width: 72,
-            height: 72,
+            height: 66,
             decoration: BoxDecoration(color: Colors.white.withOpacity(.16), borderRadius: BorderRadius.circular(26)),
             child: const Icon(Icons.timer_rounded, color: C.gold, size: 38),
           ),
@@ -453,7 +455,7 @@ class _HomePageState extends State<HomePage> {
       );
 
   Widget _section(String title, String sub) => Row(children: [
-        Expanded(child: Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: C.ink))),
+        Expanded(child: Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: C.ink))),
         Text(sub, style: const TextStyle(color: C.muted, fontWeight: FontWeight.w800)),
       ]);
 }
@@ -495,7 +497,7 @@ class RecipeCard extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(recipe.category, style: const TextStyle(color: C.green, fontSize: 12, fontWeight: FontWeight.w900)),
               const SizedBox(height: 4),
-              Text(recipe.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, height: 1.12, fontWeight: FontWeight.w900, color: C.ink)),
+              Text(recipe.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14.5, height: 1.18, fontWeight: FontWeight.w800, color: C.ink)),
               const SizedBox(height: 8),
               Row(children: [
                 const Icon(Icons.star_rounded, color: C.gold, size: 18),
@@ -533,7 +535,7 @@ class DetailPage extends StatelessWidget {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(22, 6, 22, 110),
           sliver: SliverList.list(children: [
-            Text(recipe.title, style: const TextStyle(fontSize: 30, height: 1.04, fontWeight: FontWeight.w900, color: C.ink)),
+            Text(recipe.title, style: const TextStyle(fontSize: 26, height: 1.08, fontWeight: FontWeight.w800, color: C.ink)),
             const SizedBox(height: 9),
             Row(children: [
               const Icon(Icons.star_rounded, color: C.gold),
@@ -706,7 +708,7 @@ class _CookingPageState extends State<CookingPage> {
               Text('Étape ${index + 1}/${widget.recipe.steps.length}', style: const TextStyle(fontWeight: FontWeight.w900, color: C.muted)),
             ]),
             const SizedBox(height: 8),
-            Text(widget.recipe.title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: C.ink)),
+            Text(widget.recipe.title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: C.ink)),
             const SizedBox(height: 24),
             SizedBox(
               height: 260,
@@ -723,7 +725,7 @@ class _CookingPageState extends State<CookingPage> {
                   ),
                 ),
                 Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text('$minutes:$seconds', style: const TextStyle(fontSize: 52, fontWeight: FontWeight.w900, color: C.ink)),
+                  Text('$minutes:$seconds', style: const TextStyle(fontSize: 48, fontWeight: FontWeight.w800, color: C.ink)),
                   const Text('restantes', style: TextStyle(color: C.muted, fontWeight: FontWeight.w800)),
                 ]),
               ]),
@@ -911,7 +913,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
           initialValue: value,
           keyboardType: number ? TextInputType.number : TextInputType.text,
           onChanged: onChanged,
-          style: const TextStyle(fontWeight: FontWeight.w800),
+          style: const TextStyle(fontWeight: FontWeight.w600),
           decoration: inputDecoration(label),
         ),
       );
@@ -944,7 +946,16 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, Ingredient(name: name.text, qty: double.tryParse(qty.text.replaceAll(',', '.')) ?? 1, unit: unit.text)), child: const Text('OK'))],
     ));
-    if (result != null) setState(() => index == null ? r.ingredients.add(result) : r.ingredients[index] = result);
+    if (result != null) {
+      setState(() {
+        if (index == null) {
+          r.ingredients.add(result);
+        } else {
+          r.ingredients[index] = result;
+        }
+      });
+      if (widget.recipe != null) widget.store.upsert(r);
+    }
   }
 
   Future<void> editStep({int? index}) async {
@@ -964,7 +975,22 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, CookStep(title: title.text, minutes: int.tryParse(min.text) ?? 5, temp: int.tryParse(temp.text) ?? 0, note: note.text)), child: const Text('OK'))],
     ));
-    if (result != null) setState(() => index == null ? r.steps.add(result) : r.steps[index] = result);
+    if (result != null) {
+      final clean = CookStep(
+        title: result.title.trim().isEmpty ? 'Nouvelle étape' : result.title.trim(),
+        minutes: result.minutes <= 0 ? 1 : result.minutes,
+        temp: result.temp < 0 ? 0 : result.temp,
+        note: result.note.trim(),
+      );
+      setState(() {
+        if (index == null) {
+          r.steps.add(clean);
+        } else {
+          r.steps[index] = clean;
+        }
+      });
+      if (widget.recipe != null) widget.store.upsert(r);
+    }
   }
 
   Future<void> editVideo({int? index}) async {
@@ -974,8 +1000,84 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       content: TextField(controller: ctrl, decoration: inputDecoration('YouTube, TikTok, Instagram...')),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, ctrl.text), child: const Text('OK'))],
     ));
-    if (result != null && result.trim().isNotEmpty) setState(() => index == null ? r.videos.add(result.trim()) : r.videos[index] = result.trim());
+    if (result != null && result.trim().isNotEmpty) {
+      setState(() {
+        if (index == null) {
+          r.videos.add(result.trim());
+        } else {
+          r.videos[index] = result.trim();
+        }
+      });
+      if (widget.recipe != null) widget.store.upsert(r);
+    }
   }
+}
+
+
+class FavoritesPage extends StatelessWidget {
+  final Store store;
+  const FavoritesPage({super.key, required this.store});
+  @override
+  Widget build(BuildContext context) {
+    final favs = store.recipes.where((e) => e.favorite).toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Favoris', style: TextStyle(fontWeight: FontWeight.w800))),
+      body: favs.isEmpty
+          ? Center(child: premiumEmpty(Icons.favorite_outline_rounded, 'Aucun favori', 'Ajoute tes recettes préférées ici.'))
+          : GridView.builder(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 110),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 14, mainAxisSpacing: 16, childAspectRatio: .70),
+              itemCount: favs.length,
+              itemBuilder: (_, i) => RecipeCard(store: store, recipe: favs[i]),
+            ),
+    );
+  }
+}
+
+class MorePage extends StatelessWidget {
+  final Store store;
+  const MorePage({super.key, required this.store});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Plus', style: TextStyle(fontWeight: FontWeight.w800))),
+      body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
+        premiumNote(Icons.card_giftcard_rounded, 'Cadeau premium', 'Une app simple pour sauvegarder, cuisiner et éviter les oublis grâce aux alarmes.'),
+        quickAction(context, Icons.insights_rounded, 'Dashboard', 'Recettes, favoris, étapes et alarmes', StatsPage(store: store)),
+        quickAction(context, Icons.tune_rounded, 'Paramètres', 'Alarmes, mesures, sauvegarde et apparence', SettingsPage(store: store)),
+        quickAction(context, Icons.straighten_rounded, 'Convertisseur mesures', 'Verre, litre, ml et cuillères', const ConverterPage()),
+        quickAction(context, Icons.backup_rounded, 'Sauvegarde', 'Les données sont sauvegardées localement', const BackupInfoPage()),
+      ]),
+    );
+  }
+}
+
+class ConverterPage extends StatelessWidget {
+  const ConverterPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Convertisseur', style: TextStyle(fontWeight: FontWeight.w800))),
+        body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: const [
+          SettingTile(icon: Icons.local_drink_rounded, title: '1 verre', sub: '≈ 200 ml selon le verre maison'),
+          SettingTile(icon: Icons.water_drop_rounded, title: '1 litre', sub: '= 1000 ml = environ 5 verres'),
+          SettingTile(icon: Icons.soup_kitchen_rounded, title: '1 cuillère à soupe', sub: '≈ 15 ml'),
+          SettingTile(icon: Icons.coffee_rounded, title: '1 cuillère à café', sub: '≈ 5 ml'),
+          SettingTile(icon: Icons.bakery_dining_rounded, title: 'Farine', sub: '1 verre ≈ 120 à 160 g selon densité'),
+        ]),
+      );
+}
+
+class BackupInfoPage extends StatelessWidget {
+  const BackupInfoPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Sauvegarde', style: TextStyle(fontWeight: FontWeight.w800))),
+        body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: const [
+          SettingTile(icon: Icons.phone_android_rounded, title: 'Sauvegarde locale', sub: 'Les recettes restent dans ce téléphone.'),
+          SettingTile(icon: Icons.lock_rounded, title: 'Privé', sub: 'Aucun compte obligatoire pour cette version.'),
+          SettingTile(icon: Icons.cloud_queue_rounded, title: 'Cloud plus tard', sub: 'On pourra ajouter Google Drive/Firebase ensuite.'),
+        ]),
+      );
 }
 
 class StatsPage extends StatelessWidget {
@@ -1003,11 +1105,15 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Réglages', style: TextStyle(fontWeight: FontWeight.w900))),
+      appBar: AppBar(title: const Text('Paramètres', style: TextStyle(fontWeight: FontWeight.w800))),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: const [
-        SettingTile(icon: Icons.notifications_active_rounded, title: 'Alarmes anti-brûlure', sub: 'Sonnerie, vibration et notification forte'),
-        SettingTile(icon: Icons.palette_rounded, title: 'Apparence', sub: 'Thème crème premium Material Design'),
-        SettingTile(icon: Icons.straighten_rounded, title: 'Mesures', sub: 'g, kg, ml, L, verre, cuillère, pièce'),
+        SettingTile(icon: Icons.notifications_active_rounded, title: 'Alarmes anti-brûlure', sub: 'Sonnerie, vibration, plein écran et rappel +5 minutes'),
+        SettingTile(icon: Icons.volume_up_rounded, title: 'Sonnerie', sub: 'Son fort par défaut pour éviter les oublis'),
+        SettingTile(icon: Icons.phone_iphone_rounded, title: 'Écran allumé', sub: 'Le mode cuisson garde l’écran actif'),
+        SettingTile(icon: Icons.palette_rounded, title: 'Couleurs', sub: 'Crème, sauge, terracotta et doré doux'),
+        SettingTile(icon: Icons.straighten_rounded, title: 'Unités', sub: 'g, kg, ml, L, verre, cuillère, pièce, pincée'),
+        SettingTile(icon: Icons.shopping_basket_rounded, title: 'Courses', sub: 'Exporter seulement les ingrédients manquants'),
+        SettingTile(icon: Icons.image_rounded, title: 'Images', sub: 'Sélection depuis la galerie du téléphone'),
         SettingTile(icon: Icons.backup_rounded, title: 'Sauvegarde locale', sub: 'Les recettes restent dans le téléphone'),
       ]),
     );
@@ -1026,6 +1132,31 @@ class SettingTile extends StatelessWidget {
         child: ListTile(leading: Icon(icon, color: C.green), title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)), subtitle: Text(sub), trailing: const Icon(Icons.chevron_right_rounded)),
       );
 }
+
+
+Widget quickAction(BuildContext context, IconData icon, String title, String sub, Widget page) => Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: soft(radius: 24),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(width: 46, height: 46, decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(16)), child: Icon(icon, color: C.green)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis),
+        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => page)),
+      ),
+    );
+
+Widget premiumEmpty(IconData icon, String title, String sub) => Padding(
+      padding: const EdgeInsets.all(28),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 82, height: 82, decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(28)), child: Icon(icon, size: 38, color: C.green)),
+        const SizedBox(height: 18),
+        Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: C.ink)),
+        const SizedBox(height: 8),
+        Text(sub, textAlign: TextAlign.center, style: const TextStyle(color: C.muted, fontWeight: FontWeight.w600)),
+      ]),
+    );
 
 class RecipeImage extends StatelessWidget {
   final Recipe recipe;
@@ -1084,18 +1215,18 @@ IconData _catIcon(String c) {
 }
 
 LinearGradient foodGradient(String c) {
-  if (c == 'Desserts' || c == 'Gâteaux') return const LinearGradient(colors: [Color(0xFFE9B949), Color(0xFFD8896B)]);
-  if (c == 'Jus') return const LinearGradient(colors: [Color(0xFF8AA89A), Color(0xFFE9B949)]);
-  return const LinearGradient(colors: [Color(0xFF214E45), Color(0xFF8AA89A)]);
+  if (c == 'Desserts' || c == 'Gâteaux') return const LinearGradient(colors: [Color(0xFFF1C873), Color(0xFFDFA184)]);
+  if (c == 'Jus') return const LinearGradient(colors: [Color(0xFFB7C8A9), Color(0xFFF0CF84)]);
+  return const LinearGradient(colors: [Color(0xFF6D8069), Color(0xFFCDA27B)]);
 }
 
 BoxDecoration soft({double radius = 24}) => BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(radius), boxShadow: shadow());
-List<BoxShadow> shadow() => [BoxShadow(color: Colors.black.withOpacity(.065), blurRadius: 22, offset: const Offset(0, 10))];
+List<BoxShadow> shadow() => [BoxShadow(color: Colors.black.withOpacity(.045), blurRadius: 24, offset: const Offset(0, 12))];
 
 Widget miniPill(String text, IconData icon) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(color: Colors.white.withOpacity(.92), borderRadius: BorderRadius.circular(20)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 15, color: C.green), const SizedBox(width: 4), Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: C.ink))]),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 15, color: C.green), const SizedBox(width: 4), Text(text, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: C.ink))]),
     );
 
 Widget infoTile(IconData icon, String label) => Expanded(
@@ -1152,9 +1283,9 @@ Widget statBox(String title, String value, IconData icon) => Expanded(
       ),
     );
 
-InputDecoration inputDecoration(String label) => InputDecoration(labelText: label, filled: true, fillColor: C.card, border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none));
+InputDecoration inputDecoration(String label) => InputDecoration(labelText: label, filled: true, fillColor: C.card, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14), border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: const BorderSide(color: C.green, width: 1.4)));
 
-ButtonStyle mainButtonStyle() => FilledButton.styleFrom(backgroundColor: C.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)), textStyle: const TextStyle(fontWeight: FontWeight.w900));
+ButtonStyle mainButtonStyle() => FilledButton.styleFrom(backgroundColor: C.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), textStyle: const TextStyle(fontWeight: FontWeight.w800));
 
 String fmt(double n) => n == n.roundToDouble() ? n.toInt().toString() : n.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
 
