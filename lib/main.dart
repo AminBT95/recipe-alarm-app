@@ -44,8 +44,10 @@ class Ingredient {
   bool have;
   String icon;
   String imagePath;
-  Ingredient({required this.name, required this.qty, required this.unit, this.have = false, this.icon = 'restaurant', this.imagePath = ''});
-  Map<String, dynamic> toJson() => {'name': name, 'qty': qty, 'unit': unit, 'have': have, 'icon': icon, 'imagePath': imagePath};
+  bool needsThaw;
+  int thawHours;
+  Ingredient({required this.name, required this.qty, required this.unit, this.have = false, this.icon = 'restaurant', this.imagePath = '', this.needsThaw = false, this.thawHours = 12});
+  Map<String, dynamic> toJson() => {'name': name, 'qty': qty, 'unit': unit, 'have': have, 'icon': icon, 'imagePath': imagePath, 'needsThaw': needsThaw, 'thawHours': thawHours};
   factory Ingredient.fromJson(Map<String, dynamic> j) => Ingredient(
         name: j['name'] ?? '',
         qty: (j['qty'] as num? ?? 0).toDouble(),
@@ -53,6 +55,8 @@ class Ingredient {
         have: j['have'] ?? false,
         icon: j['icon'] ?? guessIngredientIcon(j['name'] ?? ''),
         imagePath: j['imagePath'] ?? '',
+        needsThaw: j['needsThaw'] ?? false,
+        thawHours: j['thawHours'] ?? 12,
       );
 }
 
@@ -193,6 +197,9 @@ class AppSettings {
   bool autoBackup;
   int defaultExtraMinutes;
   double fontScale;
+  String alarmTone;
+  bool enableCustomTimers;
+  bool showMealTimers;
 
   AppSettings({
     this.alarmSound = true,
@@ -206,6 +213,9 @@ class AppSettings {
     this.autoBackup = true,
     this.defaultExtraMinutes = 5,
     this.fontScale = 1.0,
+    this.alarmTone = 'Fort classique',
+    this.enableCustomTimers = true,
+    this.showMealTimers = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -220,6 +230,9 @@ class AppSettings {
         'autoBackup': autoBackup,
         'defaultExtraMinutes': defaultExtraMinutes,
         'fontScale': fontScale,
+        'alarmTone': alarmTone,
+        'enableCustomTimers': enableCustomTimers,
+        'showMealTimers': showMealTimers,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -234,6 +247,9 @@ class AppSettings {
         autoBackup: j['autoBackup'] ?? true,
         defaultExtraMinutes: j['defaultExtraMinutes'] ?? 5,
         fontScale: (j['fontScale'] as num? ?? 1.0).toDouble(),
+        alarmTone: j['alarmTone'] ?? 'Fort classique',
+        enableCustomTimers: j['enableCustomTimers'] ?? true,
+        showMealTimers: j['showMealTimers'] ?? true,
       );
 }
 
@@ -241,6 +257,7 @@ class Store extends ChangeNotifier {
   List<Recipe> recipes = [];
   List<String> categories = ['Tajines','Desserts','Plats','Gâteaux','Jus','Soupes','Salades','Pain','Autres'];
   Map<String, String> mealPlan = {};
+  Map<String, String> categoryIcons = {};
   AppSettings settings = AppSettings();
 
   Future<void> load() async {
@@ -250,6 +267,7 @@ class Store extends ChangeNotifier {
     final settingsRaw = sp.getString('settings_v1');
     final catsRaw = sp.getString('categories_v1');
     final mealRaw = sp.getString('meal_plan_v1');
+    final catIconsRaw = sp.getString('category_icons_v1');
     if (settingsRaw != null) {
       settings = AppSettings.fromJson(jsonDecode(settingsRaw));
     }
@@ -277,6 +295,7 @@ class Store extends ChangeNotifier {
     await sp.setString('settings_v1', jsonEncode(settings.toJson()));
     await sp.setString('categories_v1', jsonEncode(categories));
     await sp.setString('meal_plan_v1', jsonEncode(mealPlan));
+    await sp.setString('category_icons_v1', jsonEncode(categoryIcons));
     if (settings.autoBackup) {
       await sp.setString('recette_alarm_auto_backup', exportJson());
     }
@@ -306,6 +325,7 @@ class Store extends ChangeNotifier {
         'settings': settings.toJson(),
         'categories': categories,
         'mealPlan': mealPlan,
+        'categoryIcons': categoryIcons,
         'recipes': recipes.map((e) => e.toJson()).toList(),
       });
 
@@ -316,6 +336,7 @@ class Store extends ChangeNotifier {
       if (data['settings'] is Map) settings = AppSettings.fromJson(Map<String, dynamic>.from(data['settings']));
       if (data['categories'] is List) categories = List<String>.from(data['categories']);
       if (data['mealPlan'] is Map) mealPlan = Map<String, String>.from(data['mealPlan']);
+      if (data['categoryIcons'] is Map) categoryIcons = Map<String, String>.from(data['categoryIcons']);
     } else if (data is List) {
       recipes = data.map((e) => Recipe.fromJson(e)).toList();
     } else {
@@ -479,7 +500,8 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final list = widget.store.recipes.where((r) {
-      final matchQuery = r.title.toLowerCase().contains(query.toLowerCase()) || r.category.toLowerCase().contains(query.toLowerCase());
+      final q = query.toLowerCase().trim();
+      final matchQuery = q.isEmpty || r.title.toLowerCase().contains(q) || r.category.toLowerCase().contains(q) || r.ingredients.any((i)=>i.name.toLowerCase().contains(q)) || r.steps.any((st)=>st.title.toLowerCase().contains(q) || st.type.toLowerCase().contains(q));
       final matchCat = category == 'Tous' || r.category == category;
       return matchQuery && matchCat;
     }).toList();
@@ -744,10 +766,17 @@ class _DetailPageState extends State<DetailPage> {
               FilledButton.icon(
                 onPressed: r.steps.isEmpty ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => CookingPage(recipe: r, store: widget.store))),
                 icon: const Icon(Icons.local_fire_department_rounded),
-                label: const Text('Commencer la cuisson'),
+                label: const Text('Cuisson guidée étape par étape'),
                 style: mainButtonStyle(),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: r.steps.isEmpty ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => MultiTimerPage(store: widget.store, recipe: r))),
+                icon: const Icon(Icons.timer_rounded),
+                label: const Text('Lancer chronos simultanés'),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 17), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
+              ),
+              const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ShoppingPage(store: widget.store, recipe: r))),
                 icon: const Icon(Icons.shopping_bag_outlined),
@@ -849,11 +878,11 @@ class _CookingPageState extends State<CookingPage> {
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
-      builder: (_) => AlarmSheet(note: step.note, onMore: () {
+      builder: (_) => AlarmSheet(note: step.note, onMore: (extraSeconds) {
         Navigator.pop(context);
         setState(() {
-          remaining = 5 * 60;
-          total = 5 * 60;
+          remaining = extraSeconds;
+          total = extraSeconds;
         });
         start();
       }),
@@ -948,8 +977,12 @@ class _CookingPageState extends State<CookingPage> {
 
 class AlarmSheet extends StatelessWidget {
   final String note;
-  final VoidCallback onMore;
+  final ValueChanged<int> onMore;
   const AlarmSheet({super.key, required this.note, required this.onMore});
+  Widget more(String label, int seconds) => TextButton(
+    onPressed: () => onMore(seconds),
+    child: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+  );
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -966,7 +999,9 @@ class AlarmSheet extends StatelessWidget {
           const SizedBox(height: 22),
           FilledButton(onPressed: () => Navigator.pop(context), style: FilledButton.styleFrom(backgroundColor: C.gold, foregroundColor: C.ink, minimumSize: const Size.fromHeight(54), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))), child: const Text('J’ai vérifié', style: TextStyle(fontWeight: FontWeight.w900))),
           const SizedBox(height: 10),
-          TextButton(onPressed: onMore, child: const Text('+5 minutes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900))),
+          Wrap(spacing: 8, runSpacing: 6, alignment: WrapAlignment.center, children: [
+            more('+30 sec', 30), more('+1 min', 60), more('+2 min', 120), more('+5 min', 300), more('+10 min', 600), more('+15 min', 900),
+          ]),
         ]),
       ),
     );
@@ -1142,6 +1177,8 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     String icon = current.icon.isEmpty ? guessIngredientIcon(current.name) : current.icon;
     final units = ['g','kg','ml','L','verre','cuillère à soupe','cuillère à café','pièce','pincée','pot'];
     final icons = ['restaurant','chicken','meat','fish','egg','milk','flour','sugar','oil','water','onion','tomato','potato','carrot','lemon','olive','spice'];
+    bool needsThaw = current.needsThaw;
+    final thawHours = TextEditingController(text: current.thawHours.toString());
     final result = await showDialog<Ingredient>(context: context, builder: (_) => StatefulBuilder(builder: (context, setLocal) => AlertDialog(
       title: Text(index == null ? 'Ajouter ingrédient' : 'Modifier ingrédient'),
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -1150,8 +1187,10 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
         Row(children: [Expanded(child: TextField(controller: qty, keyboardType: TextInputType.number, decoration: inputDecoration('Quantité'))), const SizedBox(width: 8), Expanded(child: DropdownButtonFormField<String>(value: units.contains(unit)?unit:'g', items: units.map((e)=>DropdownMenuItem(value:e, child: Row(children:[Icon(unitIcon(e), size:18), const SizedBox(width:6), Text(e)]))).toList(), onChanged: (v)=>setLocal(()=>unit=v??unit), decoration: inputDecoration('Unité')))]),
         const SizedBox(height: 10),
         DropdownButtonFormField<String>(value: icons.contains(icon)?icon:'restaurant', items: icons.map((e)=>DropdownMenuItem(value:e, child: Row(children:[Icon(ingredientIcon(e), size:18), const SizedBox(width:8), Text(iconLabel(e))]))).toList(), onChanged: (v)=>setLocal(()=>icon=v??icon), decoration: inputDecoration('Icône ingrédient')),
+        SwitchListTile(contentPadding: EdgeInsets.zero, value: needsThaw, title: const Text('À décongeler'), subtitle: const Text('Inclure dans les rappels décongélation'), onChanged: (v)=>setLocal(()=>needsThaw=v)),
+        if(needsThaw) TextField(controller: thawHours, keyboardType: TextInputType.number, decoration: inputDecoration('Heures avant repas')),
       ])),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, Ingredient(name: name.text.trim(), qty: double.tryParse(qty.text.replaceAll(',', '.')) ?? 1, unit: unit, icon: icon, have: current.have, imagePath: current.imagePath)), child: const Text('OK'))],
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, Ingredient(name: name.text.trim(), qty: double.tryParse(qty.text.replaceAll(',', '.')) ?? 1, unit: unit, icon: icon, have: current.have, imagePath: current.imagePath, needsThaw: needsThaw, thawHours: int.tryParse(thawHours.text) ?? 12)), child: const Text('OK'))],
     )));
     if (result != null && result.name.trim().isNotEmpty) {
       setState(() {
@@ -1171,6 +1210,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     final video = TextEditingController(text: current.videoUrl);
     String type = current.type;
     bool parallel = current.parallel;
+    String stepImage = current.imagePath;
     final types = ['Couper','Éplucher','Mixer','Mariner','Repos','Cuisson','Four','Friture','Vapeur','Décongélation','Dressage'];
     final result = await showDialog<CookStep>(context: context, builder: (_) => StatefulBuilder(builder: (context, setLocal) => AlertDialog(
       title: Text(index == null ? 'Ajouter étape' : 'Modifier étape'),
@@ -1187,6 +1227,8 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
         TextField(controller: note, minLines: 2, maxLines: 4, decoration: inputDecoration('Note anti-brûlure / conseil')),
         const SizedBox(height: 10),
         TextField(controller: video, decoration: inputDecoration('Lien vidéo de cette étape')),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(onPressed: () async { final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80); if(picked!=null){ setLocal(()=>stepImage=picked.path); } }, icon: const Icon(Icons.image_rounded), label: Text(stepImage.isEmpty?'Ajouter image étape':'Image étape ajoutée')),
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, CookStep(title: title.text, type: type, minutes: int.tryParse(min.text) ?? 5, seconds: int.tryParse(sec.text) ?? 0, temp: int.tryParse(temp.text) ?? 0, note: note.text, videoUrl: video.text, parallel: parallel)), child: const Text('OK'))],
     )));
@@ -1199,7 +1241,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
         temp: result.temp < 0 ? 0 : result.temp,
         note: result.note.trim(),
         videoUrl: result.videoUrl.trim(),
-        imagePath: current.imagePath,
+        imagePath: stepImage,
         parallel: result.parallel,
       );
       setState(() { if (index == null) { r.steps.add(clean); } else { r.steps[index] = clean; } });
@@ -1231,23 +1273,27 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
 
 class MultiTimerPage extends StatefulWidget {
   final Store store;
-  const MultiTimerPage({super.key, required this.store});
+  final Recipe? recipe;
+  const MultiTimerPage({super.key, required this.store, this.recipe});
   @override State<MultiTimerPage> createState()=>_MultiTimerPageState();
 }
-class _TimerItem { String title; int remaining; int total; Timer? timer; bool running=false; _TimerItem(this.title,this.remaining):total=remaining; }
+class _TimerItem { String title; int remaining; int total; Timer? timer; bool running=false; String type; _TimerItem(this.title,this.remaining,{this.type='Custom'}):total=remaining; }
 class _MultiTimerPageState extends State<MultiTimerPage> {
   final items = <_TimerItem>[];
-  @override void dispose(){ for(final i in items){ i.timer?.cancel(); } super.dispose(); }
-  void addTimer(){ final title=TextEditingController(text:'Cuisson'); final min=TextEditingController(text:'5'); final sec=TextEditingController(text:'0'); showDialog(context: context, builder: (_)=>AlertDialog(title: const Text('Nouveau compteur'), content: Column(mainAxisSize: MainAxisSize.min, children:[TextField(controller:title, decoration: inputDecoration('Nom')), const SizedBox(height:8), Row(children:[Expanded(child:TextField(controller:min, keyboardType:TextInputType.number, decoration: inputDecoration('Min'))), const SizedBox(width:8), Expanded(child:TextField(controller:sec, keyboardType:TextInputType.number, decoration: inputDecoration('Sec')))])]), actions:[TextButton(onPressed:()=>Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed:(){final total=(int.tryParse(min.text)??0)*60+(int.tryParse(sec.text)??0); if(total>0){setState(()=>items.add(_TimerItem(title.text,total)));} Navigator.pop(context);}, child: const Text('Ajouter'))])); }
-  void toggle(_TimerItem it){ if(it.running){it.timer?.cancel(); setState(()=>it.running=false); return;} setState(()=>it.running=true); it.timer=Timer.periodic(const Duration(seconds:1), (_){ if(it.remaining<=1){ it.timer?.cancel(); setState(()=>it.running=false); notifications.show(DateTime.now().millisecondsSinceEpoch%100000, 'Compteur terminé', it.title, const NotificationDetails(android: AndroidNotificationDetails('multi_timers','Multi-compteurs', importance: Importance.max, priority: Priority.high))); } else { setState(()=>it.remaining--); }}); }
-  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Multi-compteurs', style: TextStyle(fontWeight:FontWeight.w900))), floatingActionButton: FloatingActionButton.extended(onPressed:addTimer, icon: const Icon(Icons.add), label: const Text('Compteur')), body: ListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), children:[premiumNote(Icons.timer_rounded,'Plusieurs cuissons à la fois','Lance poulet, légumes, sauce ou four en parallèle.'), ...items.map((it){final m=(it.remaining~/60).toString().padLeft(2,'0'); final sec=(it.remaining%60).toString().padLeft(2,'0'); return Container(margin: const EdgeInsets.only(bottom:12), padding: const EdgeInsets.all(16), decoration: soft(radius:24), child: Row(children:[Icon(Icons.timer_rounded, color:C.green), const SizedBox(width:12), Expanded(child: Column(crossAxisAlignment:CrossAxisAlignment.start, children:[Text(it.title, style: const TextStyle(fontWeight:FontWeight.w900)), Text('$m:$sec', style: const TextStyle(fontSize:28, fontWeight:FontWeight.w900))])), IconButton.filledTonal(onPressed:()=>toggle(it), icon: Icon(it.running?Icons.pause_rounded:Icons.play_arrow_rounded)), IconButton(onPressed:()=>setState(()=>items.remove(it)), icon: const Icon(Icons.delete_outline_rounded))]));})]));
+  @override void initState(){ super.initState(); final r=widget.recipe; if(r!=null){ for(final st in r.steps){ final sec=st.totalSeconds; if(sec>0){items.add(_TimerItem('${stepEmoji(st.type)} ${st.title}', sec, type: st.parallel?'Simultané':'Recette'));}} }}
+  void addTimer(){ final title=TextEditingController(text:'Chauffer'); final min=TextEditingController(text:'5'); final sec=TextEditingController(text:'0'); String type='Custom'; final types=['Custom','Décongélation','Chauffer','Cuisson','Four','Repos']; showDialog(context: context, builder: (_)=>StatefulBuilder(builder:(context,setLocal)=>AlertDialog(title: const Text('Nouveau chrono'), content: SingleChildScrollView(child:Column(mainAxisSize: MainAxisSize.min, children:[DropdownButtonFormField<String>(value:type, items:types.map((e)=>DropdownMenuItem(value:e, child:Text(e))).toList(), onChanged:(v)=>setLocal(()=>type=v??type), decoration: inputDecoration('Type')), const SizedBox(height:8), TextField(controller:title, decoration: inputDecoration('Nom')), const SizedBox(height:8), Row(children:[Expanded(child:TextField(controller:min, keyboardType:TextInputType.number, decoration: inputDecoration('Min'))), const SizedBox(width:8), Expanded(child:TextField(controller:sec, keyboardType:TextInputType.number, decoration: inputDecoration('Sec')))])])), actions:[TextButton(onPressed:()=>Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed:(){final total=(int.tryParse(min.text)??0)*60+(int.tryParse(sec.text)??0); if(total>0){setState(()=>items.add(_TimerItem(title.text,total,type:type)));} Navigator.pop(context);}, child: const Text('Ajouter'))]))); }
+  void toggle(_TimerItem it){ if(it.running){it.timer?.cancel(); setState(()=>it.running=false); return;} setState(()=>it.running=true); it.timer=Timer.periodic(const Duration(seconds:1), (_){ if(it.remaining<=1){ it.timer?.cancel(); setState(()=>it.running=false); notifications.show(DateTime.now().millisecondsSinceEpoch%100000, 'Chrono terminé', it.title, const NotificationDetails(android: AndroidNotificationDetails('active_timers','Chronos actifs', importance: Importance.max, priority: Priority.high, fullScreenIntent: true))); } else { setState(()=>it.remaining--); }}); }
+  @override void dispose(){ for(final it in items){it.timer?.cancel();} super.dispose(); }
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: Text(widget.recipe==null?'Chronos actifs':'Chronos ${widget.recipe!.title}', style: const TextStyle(fontWeight:FontWeight.w900))), floatingActionButton: FloatingActionButton.extended(onPressed:addTimer, icon: const Icon(Icons.add), label: const Text('Chrono')), body: items.isEmpty?Center(child: premiumEmpty(Icons.timer_outlined,'Aucun chrono actif','Ajoute un chrono libre ou lance-les depuis une recette.')):ListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), children:[premiumNote(Icons.timer_rounded,'Espace chronos actifs','Gère décongélation, cuisson, four, repos ou chauffage en même temps.'), ...items.map((it){final m=(it.remaining~/60).toString().padLeft(2,'0'); final sec=(it.remaining%60).toString().padLeft(2,'0'); final pct=it.total==0?0.0:it.remaining/it.total; return Container(margin: const EdgeInsets.only(bottom:12), padding: const EdgeInsets.all(16), decoration: soft(radius:24), child: Row(children:[CircularProgressIndicator(value:(pct.clamp(0.0,1.0) as double), color:C.gold, backgroundColor:C.blush), const SizedBox(width:14), Expanded(child: Column(crossAxisAlignment:CrossAxisAlignment.start, children:[Text(it.title, maxLines:1, overflow:TextOverflow.ellipsis, style: const TextStyle(fontWeight:FontWeight.w900)), Text(it.type, style: const TextStyle(color:C.muted, fontWeight:FontWeight.w700)), Text('$m:$sec', style: const TextStyle(fontSize:30, fontWeight:FontWeight.w900))])), IconButton.filledTonal(onPressed:()=>toggle(it), icon: Icon(it.running?Icons.pause_rounded:Icons.play_arrow_rounded)), IconButton(onPressed:()=>setState(()=>items.remove(it)), icon: const Icon(Icons.delete_outline_rounded))]));})]));
 }
 
 class CategoriesPage extends StatefulWidget { final Store store; const CategoriesPage({super.key, required this.store}); @override State<CategoriesPage> createState()=>_CategoriesPageState(); }
-class _CategoriesPageState extends State<CategoriesPage>{ void add(){final c=TextEditingController(); showDialog(context:context,builder:(_)=>AlertDialog(title: const Text('Nouvelle catégorie'), content: TextField(controller:c, decoration: inputDecoration('Nom')), actions:[TextButton(onPressed:()=>Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed:(){final v=c.text.trim(); if(v.isNotEmpty&&!widget.store.categories.contains(v)){widget.store.categories.add(v); widget.store.save(); setState((){});} Navigator.pop(context);}, child: const Text('Ajouter'))]));} @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Catégories', style: TextStyle(fontWeight:FontWeight.w900))), floatingActionButton:FloatingActionButton.extended(onPressed:add, icon: const Icon(Icons.add), label: const Text('Catégorie')), body:ReorderableListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), onReorder:(oldIndex,newIndex){setState((){if(newIndex>oldIndex)newIndex--; final item=widget.store.categories.removeAt(oldIndex); widget.store.categories.insert(newIndex,item); widget.store.save();});}, children:[for(final c in widget.store.categories) Container(key:ValueKey(c), margin: const EdgeInsets.only(bottom:10), decoration: soft(radius:22), child: ListTile(leading: Icon(_catIcon(c), color:C.green), title: Text(c, style: const TextStyle(fontWeight:FontWeight.w900)), trailing: IconButton(icon: const Icon(Icons.delete_outline_rounded), onPressed: widget.store.categories.length<=1?null:(){setState((){widget.store.categories.remove(c); widget.store.save();});}))) ]));}
+class _CategoriesPageState extends State<CategoriesPage>{
+  void edit({String? old}){final c=TextEditingController(text:old??''); String icon=widget.store.categoryIcons[old]??categoryIconKey(old??'Autres'); final icons=['tagine','cake','dish','juice','bread','soup','salad','fish','meat','dessert','other']; showDialog(context:context,builder:(_)=>StatefulBuilder(builder:(context,setLocal)=>AlertDialog(title: Text(old==null?'Nouvelle catégorie':'Modifier catégorie'), content: Column(mainAxisSize:MainAxisSize.min, children:[TextField(controller:c, decoration: inputDecoration('Nom')), const SizedBox(height:10), DropdownButtonFormField<String>(value:icons.contains(icon)?icon:'other', items:icons.map((e)=>DropdownMenuItem(value:e, child:Row(children:[Icon(categoryIconFromKey(e), size:18), const SizedBox(width:8), Text(categoryIconLabel(e))]))).toList(), onChanged:(v)=>setLocal(()=>icon=v??icon), decoration: inputDecoration('Icône'))]), actions:[TextButton(onPressed:()=>Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed:(){final v=c.text.trim(); if(v.isNotEmpty){setState((){ if(old!=null){ final i=widget.store.categories.indexOf(old); if(i!=-1) widget.store.categories[i]=v; widget.store.categoryIcons.remove(old); for(final r in widget.store.recipes){ if(r.category==old) r.category=v; } } else if(!widget.store.categories.contains(v)){ widget.store.categories.add(v); } widget.store.categoryIcons[v]=icon; widget.store.save();});} Navigator.pop(context);}, child: const Text('Enregistrer'))] ))); }
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Catégories', style: TextStyle(fontWeight:FontWeight.w900))), floatingActionButton:FloatingActionButton.extended(onPressed:()=>edit(), icon: const Icon(Icons.add), label: const Text('Catégorie')), body:ReorderableListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), onReorder:(oldIndex,newIndex){setState((){if(newIndex>oldIndex)newIndex--; final item=widget.store.categories.removeAt(oldIndex); widget.store.categories.insert(newIndex,item); widget.store.save();});}, children:[for(final c in widget.store.categories) Container(key:ValueKey(c), margin: const EdgeInsets.only(bottom:10), decoration: soft(radius:22), child: ListTile(leading: Icon(categoryIconFromKey(widget.store.categoryIcons[c]??categoryIconKey(c)), color:C.green), title: Text(c, style: const TextStyle(fontWeight:FontWeight.w900)), subtitle: Text('${widget.store.recipes.where((r)=>r.category==c).length} recettes'), trailing: Wrap(children:[IconButton(icon: const Icon(Icons.edit_rounded), onPressed:()=>edit(old:c)), IconButton(icon: const Icon(Icons.delete_outline_rounded), onPressed: widget.store.categories.length<=1?null:(){setState((){widget.store.categories.remove(c); widget.store.categoryIcons.remove(c); widget.store.save();});})])) )]));}
 
 class MealPlannerPage extends StatefulWidget { final Store store; const MealPlannerPage({super.key, required this.store}); @override State<MealPlannerPage> createState()=>_MealPlannerPageState(); }
-class _MealPlannerPageState extends State<MealPlannerPage>{ final days=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche']; final meals=['Déjeuner','Dîner']; @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Repas de la semaine', style: TextStyle(fontWeight:FontWeight.w900))), body:ListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), children:[premiumNote(Icons.ac_unit_rounded,'Décongélation intelligente','Prévois les repas et note ce qu’il faut sortir du congélateur.'), for(final d in days) Container(margin: const EdgeInsets.only(bottom:12), padding: const EdgeInsets.all(14), decoration: soft(radius:24), child: Column(crossAxisAlignment:CrossAxisAlignment.start, children:[Text(d, style: const TextStyle(fontSize:18, fontWeight:FontWeight.w900)), for(final meal in meals) Padding(padding: const EdgeInsets.only(top:8), child: DropdownButtonFormField<String>(value: widget.store.mealPlan['$d-$meal'], items: [const DropdownMenuItem<String>(value:null, child:Text('Aucun')), ...widget.store.recipes.map((r)=>DropdownMenuItem(value:r.id, child:Text(r.title, overflow:TextOverflow.ellipsis)))], onChanged:(v){setState((){ if(v==null){widget.store.mealPlan.remove('$d-$meal');}else{widget.store.mealPlan['$d-$meal']=v;} widget.store.save();});}, decoration: inputDecoration(meal))), Builder(builder:(_){final ids=meals.map((m)=>widget.store.mealPlan['$d-$m']).whereType<String>(); final notes=ids.map((id)=>widget.store.byId(id)?.thawNote??'').where((e)=>e.isNotEmpty).toList(); return notes.isEmpty?const SizedBox.shrink():Padding(padding: const EdgeInsets.only(top:10), child: Text('À décongeler : ${notes.join(' • ')}', style: const TextStyle(color:C.terracotta, fontWeight:FontWeight.w800)));})]))])); }
+class _MealPlannerPageState extends State<MealPlannerPage>{ final days=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche']; final meals=['Petit-déj','Déjeuner','Casse-croûte','Dîner']; @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Repas de la semaine', style: TextStyle(fontWeight:FontWeight.w900))), body:ListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), children:[premiumNote(Icons.ac_unit_rounded,'Décongélation intelligente','Prévois les repas et note ce qu’il faut sortir du congélateur.'), for(final d in days) Container(margin: const EdgeInsets.only(bottom:12), padding: const EdgeInsets.all(14), decoration: soft(radius:24), child: Column(crossAxisAlignment:CrossAxisAlignment.start, children:[Text(d, style: const TextStyle(fontSize:18, fontWeight:FontWeight.w900)), for(final meal in meals) Padding(padding: const EdgeInsets.only(top:8), child: DropdownButtonFormField<String>(value: widget.store.mealPlan['$d-$meal'], items: [const DropdownMenuItem<String>(value:null, child:Text('Aucun')), ...widget.store.recipes.map((r)=>DropdownMenuItem(value:r.id, child:Text(r.title, overflow:TextOverflow.ellipsis)))], onChanged:(v){setState((){ if(v==null){widget.store.mealPlan.remove('$d-$meal');}else{widget.store.mealPlan['$d-$meal']=v;} widget.store.save();});}, decoration: inputDecoration(meal))), Builder(builder:(_){final ids=meals.map((m)=>widget.store.mealPlan['$d-$m']).whereType<String>(); final notes=ids.map((id)=>widget.store.byId(id)?.thawNote??'').where((e)=>e.isNotEmpty).toList(); return notes.isEmpty?const SizedBox.shrink():Padding(padding: const EdgeInsets.only(top:10), child: Text('À décongeler : ${notes.join(' • ')}', style: const TextStyle(color:C.terracotta, fontWeight:FontWeight.w800)));})]))])); }
 
 class FavoritesPage extends StatelessWidget {
   final Store store;
@@ -1411,9 +1457,12 @@ class _SettingsPageState extends State<SettingsPage> {
         SwitchTile(icon: Icons.repeat_rounded, title: 'Rappel alarme', sub: 'Répéter si la cuisson n’est pas confirmée', value: st.repeatAlarm, onChanged: (v){st.repeatAlarm=v;save();}),
         SwitchTile(icon: Icons.ac_unit_rounded, title: 'Rappels décongélation', sub: 'Prévenir quoi sortir du congélateur', value: st.thawNotifications, onChanged: (v){st.thawNotifications=v;save();}),
         SwitchTile(icon: Icons.backup_rounded, title: 'Sauvegarde auto', sub: 'Créer une sauvegarde locale après chaque modification', value: st.autoBackup, onChanged: (v){st.autoBackup=v;save();}),
+        SwitchTile(icon: Icons.timer_rounded, title: 'Chronos custom', sub: 'Décongeler, chauffer, four, repos sans recette', value: st.enableCustomTimers, onChanged: (v){st.enableCustomTimers=v;save();}),
+        SwitchTile(icon: Icons.restaurant_rounded, title: 'Chronos par repas', sub: 'Afficher les chronos actifs liés aux recettes', value: st.showMealTimers, onChanged: (v){st.showMealTimers=v;save();}),
         SettingTile(icon: Icons.local_drink_rounded, title: 'Taille du verre maison', sub: '${st.glassMl} ml', onTap: () => editGlassMl(context, widget.store, () => setState(() {}))),
         SettingTile(icon: Icons.add_alarm_rounded, title: 'Rallonge par défaut', sub: '+${st.defaultExtraMinutes} min', onTap: () => editDefaultExtra(context, widget.store, () => setState(() {}))),
-        SettingTile(icon: Icons.palette_rounded, title: 'Couleurs', sub: st.themeName, onTap: () => infoDialog(context, 'Couleurs', 'Palette actuelle : crème, sauge, terracotta et doré doux.')),
+        SettingTile(icon: Icons.music_note_rounded, title: 'Sonnerie alarme', sub: st.alarmTone, onTap: () => editAlarmTone(context, widget.store, () => setState(() {}))),
+        SettingTile(icon: Icons.palette_rounded, title: 'Couleurs', sub: st.themeName, onTap: () => editThemeName(context, widget.store, () => setState(() {}))),
         SettingTile(icon: Icons.shopping_basket_rounded, title: 'Courses', sub: 'Exporter seulement les ingrédients manquants', onTap: () => infoDialog(context, 'Courses', 'Dans Liste de courses, coche ce que tu as déjà. L’export contient seulement le reste.')),
         SettingTile(icon: Icons.image_rounded, title: 'Images', sub: 'Sélection depuis la galerie du téléphone', onTap: () => infoDialog(context, 'Images', 'Utilise Modifier recette puis touche l’image pour choisir une photo.')),
       ]),
@@ -1736,3 +1785,11 @@ void exportMissing(BuildContext context, Recipe r) {
   Clipboard.setData(ClipboardData(text: text));
   showDialog(context: context, builder: (_) => AlertDialog(title: const Text('Liste copiée'), content: Text(text), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))]));
 }
+
+
+String categoryIconKey(String c){ final x=c.toLowerCase(); if(x.contains('taj')) return 'tagine'; if(x.contains('gâteau')||x.contains('dessert')) return 'cake'; if(x.contains('jus')) return 'juice'; if(x.contains('pain')) return 'bread'; if(x.contains('soupe')) return 'soup'; if(x.contains('salade')) return 'salad'; if(x.contains('poisson')) return 'fish'; if(x.contains('viande')) return 'meat'; if(x.contains('plat')) return 'dish'; return 'other'; }
+IconData categoryIconFromKey(String k){ switch(k){case 'tagine': return Icons.soup_kitchen_rounded; case 'cake': return Icons.cake_rounded; case 'juice': return Icons.local_drink_rounded; case 'bread': return Icons.bakery_dining_rounded; case 'soup': return Icons.ramen_dining_rounded; case 'salad': return Icons.eco_rounded; case 'fish': return Icons.set_meal_rounded; case 'meat': return Icons.dinner_dining_rounded; case 'dish': return Icons.restaurant_rounded; default: return Icons.category_rounded;} }
+String categoryIconLabel(String k){ switch(k){case 'tagine': return 'Tajine'; case 'cake': return 'Gâteau/Dessert'; case 'juice': return 'Jus'; case 'bread': return 'Pain'; case 'soup': return 'Soupe'; case 'salad': return 'Salade'; case 'fish': return 'Poisson'; case 'meat': return 'Viande'; case 'dish': return 'Plat'; default: return 'Autre';} }
+String stepEmoji(String type){ switch(type){case 'Couper': return '🔪'; case 'Éplucher': return '🥕'; case 'Mixer': return '🌀'; case 'Mariner': return '🧂'; case 'Four': return '🔥'; case 'Friture': return '🍳'; case 'Décongélation': return '❄️'; case 'Repos': return '⏳'; default: return '⏱';} }
+Future<void> editAlarmTone(BuildContext context, Store store, VoidCallback refresh) async { final tones=['Fort classique','Doux cuisine','Urgent anti-brûlure','Vibration seulement']; final choice=await showModalBottomSheet<String>(context: context, builder:(_)=>SafeArea(child: ListView(padding: const EdgeInsets.all(18), children:[const Text('Sonnerie alarme', style: TextStyle(fontSize:22,fontWeight:FontWeight.w900)), ...tones.map((t)=>ListTile(leading: Icon(t==store.settings.alarmTone?Icons.radio_button_checked:Icons.radio_button_off, color:C.green), title:Text(t), onTap:()=>Navigator.pop(context,t)))]))); if(choice!=null){store.settings.alarmTone=choice; await store.save(); refresh();}}
+Future<void> editThemeName(BuildContext context, Store store, VoidCallback refresh) async { final themes=['Crème sauge','Crème terracotta','Olive doux','Doré cuisine','Clair minimal']; final choice=await showModalBottomSheet<String>(context: context, builder:(_)=>SafeArea(child: ListView(padding: const EdgeInsets.all(18), children:[const Text('Palette couleurs', style: TextStyle(fontSize:22,fontWeight:FontWeight.w900)), ...themes.map((t)=>ListTile(leading: Icon(t==store.settings.themeName?Icons.check_circle:Icons.palette_outlined, color:C.green), title:Text(t), subtitle: const Text('Appliquée aux prochaines versions UI'), onTap:()=>Navigator.pop(context,t)))]))); if(choice!=null){store.settings.themeName=choice; await store.save(); refresh();}}
