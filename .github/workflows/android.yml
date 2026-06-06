@@ -1,22 +1,29 @@
-name: Build Android APK
+name: Build Flutter Android APK
+
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: subosito/flutter-action@v2
         with:
-          distribution: temurin
-          java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
-        run: gradle assembleDebug
+          channel: stable
+      - name: Prepare Android project
+        run: |
+          if [ ! -d "android" ] || [ ! -f "android/app/build.gradle" ]; then
+            flutter create --platforms=android --project-name recette_alarm_pro .
+          fi
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Build APK
+        run: flutter build apk --debug
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RecetteAlarm-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: recette-alarm-pro-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
