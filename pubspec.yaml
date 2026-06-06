@@ -1,4 +1,4 @@
-name: recette_alarm_pro
+name: recette_alarm_premium
 
 description: Application premium de recettes avec alarmes anti-brulure.
 publish_to: 'none'
@@ -15,8 +15,8 @@ dependencies:
   image_picker: ^1.1.2
   url_launcher: ^6.3.1
   flutter_local_notifications: ^17.2.3
-  timezone: ^0.9.4
   vibration: ^2.0.1
+  google_fonts: ^6.2.1
 
 flutter:
   uses-material-design: true

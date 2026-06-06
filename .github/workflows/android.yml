@@ -16,58 +16,63 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
-          cache: true
+          flutter-version: '3.24.5'
+          channel: 'stable'
 
-      - name: Recreate Android project safely
-        run: flutter create --platforms=android --project-name recette_alarm_pro .
-
-      - name: Patch Android SDK and desugaring
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-          p = Path('android/app/build.gradle')
-          text = p.read_text()
-          text = text.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 35')
-          text = text.replace('compileSdk flutter.compileSdkVersion', 'compileSdk 35')
-          text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 23')
-          text = text.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 23')
-          text = text.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 35')
-          text = text.replace('targetSdkVersion flutter.targetSdkVersion', 'targetSdkVersion 35')
-
-          if 'coreLibraryDesugaringEnabled' not in text:
-              if 'compileOptions {' in text:
-                  text = text.replace('compileOptions {', 'compileOptions {\n        coreLibraryDesugaringEnabled true', 1)
-              else:
-                  text = text.replace('android {', 'android {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }', 1)
-
-          if 'sourceCompatibility = JavaVersion.VERSION_1_8' in text:
-              text = text.replace('sourceCompatibility = JavaVersion.VERSION_1_8', 'sourceCompatibility = JavaVersion.VERSION_17')
-          if 'targetCompatibility = JavaVersion.VERSION_1_8' in text:
-              text = text.replace('targetCompatibility = JavaVersion.VERSION_1_8', 'targetCompatibility = JavaVersion.VERSION_17')
-          if 'sourceCompatibility JavaVersion.VERSION_1_8' in text:
-              text = text.replace('sourceCompatibility JavaVersion.VERSION_1_8', 'sourceCompatibility JavaVersion.VERSION_17')
-          if 'targetCompatibility JavaVersion.VERSION_1_8' in text:
-              text = text.replace('targetCompatibility JavaVersion.VERSION_1_8', 'targetCompatibility JavaVersion.VERSION_17')
-
-          if 'coreLibraryDesugaring' not in text:
-              if 'dependencies {' in text:
-                  text = text.replace('dependencies {', "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'", 1)
-              else:
-                  text += "\n\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n}\n"
-          p.write_text(text)
-          gp = Path('android/gradle.properties')
-          gpt = gp.read_text() if gp.exists() else ''
-          if 'android.suppressUnsupportedCompileSdk=35' not in gpt:
-              gpt += '\nandroid.suppressUnsupportedCompileSdk=35\n'
-          gp.write_text(gpt)
-          PY
+      - name: Recreate Android folder
+        run: flutter create --platforms=android --project-name recette_alarm_premium .
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Analyze Dart syntax
-        run: flutter analyze || true
+      - name: Patch Android Gradle config
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          candidates = [Path('android/app/build.gradle'), Path('android/app/build.gradle.kts')]
+          p = next((x for x in candidates if x.exists()), None)
+          if p is None:
+              raise FileNotFoundError('android/app/build.gradle or build.gradle.kts not found after flutter create')
+          txt = p.read_text()
+
+          if p.suffix == '.kts':
+              txt = txt.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 35')
+              txt = txt.replace('minSdk = flutter.minSdkVersion', 'minSdk = 23')
+              txt = txt.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 35')
+              if 'isCoreLibraryDesugaringEnabled = true' not in txt:
+                  txt = txt.replace(
+                      'targetCompatibility = JavaVersion.VERSION_1_8',
+                      'targetCompatibility = JavaVersion.VERSION_17\n        isCoreLibraryDesugaringEnabled = true'
+                  )
+                  txt = txt.replace('sourceCompatibility = JavaVersion.VERSION_1_8', 'sourceCompatibility = JavaVersion.VERSION_17')
+              if 'desugar_jdk_libs' not in txt:
+                  txt += '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n'
+          else:
+              txt = txt.replace('compileSdk flutter.compileSdkVersion', 'compileSdk 35')
+              txt = txt.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 23')
+              txt = txt.replace('targetSdkVersion flutter.targetSdkVersion', 'targetSdkVersion 35')
+              if 'coreLibraryDesugaringEnabled true' not in txt:
+                  txt = txt.replace(
+                      'targetCompatibility JavaVersion.VERSION_1_8',
+                      'targetCompatibility JavaVersion.VERSION_17\n        coreLibraryDesugaringEnabled true'
+                  )
+                  txt = txt.replace('sourceCompatibility JavaVersion.VERSION_1_8', 'sourceCompatibility JavaVersion.VERSION_17')
+              if 'desugar_jdk_libs' not in txt:
+                  txt += "\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n}\n"
+          p.write_text(txt)
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          m = manifest.read_text()
+          for perm in [
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>',
+              '<uses-permission android:name="android.permission.VIBRATE"/>',
+              '<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>',
+          ]:
+              if perm not in m:
+                  m = m.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    ' + perm)
+          manifest.write_text(m)
+          PY
 
       - name: Build APK
         run: flutter build apk --debug
@@ -75,5 +80,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: recette-alarm-flutter-debug-apk
+          name: recette-alarm-premium-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
