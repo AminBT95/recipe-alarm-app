@@ -137,25 +137,74 @@ class Recipe {
       );
 }
 
+
+class AppSettings {
+  bool alarmSound;
+  bool vibration;
+  bool keepAwake;
+  bool repeatAlarm;
+  bool showFullScreen;
+  int glassMl;
+  String themeName;
+
+  AppSettings({
+    this.alarmSound = true,
+    this.vibration = true,
+    this.keepAwake = true,
+    this.repeatAlarm = true,
+    this.showFullScreen = true,
+    this.glassMl = 200,
+    this.themeName = 'Crème premium',
+  });
+
+  Map<String, dynamic> toJson() => {
+        'alarmSound': alarmSound,
+        'vibration': vibration,
+        'keepAwake': keepAwake,
+        'repeatAlarm': repeatAlarm,
+        'showFullScreen': showFullScreen,
+        'glassMl': glassMl,
+        'themeName': themeName,
+      };
+
+  factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
+        alarmSound: j['alarmSound'] ?? true,
+        vibration: j['vibration'] ?? true,
+        keepAwake: j['keepAwake'] ?? true,
+        repeatAlarm: j['repeatAlarm'] ?? true,
+        showFullScreen: j['showFullScreen'] ?? true,
+        glassMl: j['glassMl'] ?? 200,
+        themeName: j['themeName'] ?? 'Crème premium',
+      );
+}
+
 class Store extends ChangeNotifier {
   List<Recipe> recipes = [];
+  AppSettings settings = AppSettings();
 
   Future<void> load() async {
     final sp = await SharedPreferences.getInstance();
-    final raw = sp.getString('recipes_v2');
-    if (raw == null) {
+    final raw = sp.getString('recipes_v3');
+    final oldRaw = sp.getString('recipes_v2');
+    final settingsRaw = sp.getString('settings_v1');
+    if (settingsRaw != null) {
+      settings = AppSettings.fromJson(jsonDecode(settingsRaw));
+    }
+    final source = raw ?? oldRaw;
+    if (source == null) {
       recipes = [sampleRecipe(), sampleDessert()];
       await save();
     } else {
-      recipes = (jsonDecode(raw) as List).map((e) => Recipe.fromJson(e)).toList();
+      recipes = (jsonDecode(source) as List).map((e) => Recipe.fromJson(e)).toList();
     }
     notifyListeners();
   }
 
-  Future<void> save() async {
+  Future<void> save({bool notify = true}) async {
     final sp = await SharedPreferences.getInstance();
-    await sp.setString('recipes_v2', jsonEncode(recipes.map((e) => e.toJson()).toList()));
-    notifyListeners();
+    await sp.setString('recipes_v3', jsonEncode(recipes.map((e) => e.toJson()).toList()));
+    await sp.setString('settings_v1', jsonEncode(settings.toJson()));
+    if (notify) notifyListeners();
   }
 
   void upsert(Recipe recipe) {
@@ -163,7 +212,7 @@ class Store extends ChangeNotifier {
     if (index == -1) {
       recipes.insert(0, recipe);
     } else {
-      recipes[index] = recipe;
+      recipes[index] = Recipe.fromJson(recipe.toJson());
     }
     save();
   }
@@ -171,6 +220,34 @@ class Store extends ChangeNotifier {
   void remove(Recipe recipe) {
     recipes.removeWhere((e) => e.id == recipe.id);
     save();
+  }
+
+  Recipe? byId(String id) {
+    try { return recipes.firstWhere((e) => e.id == id); } catch (_) { return null; }
+  }
+
+  String exportJson() => const JsonEncoder.withIndent('  ').convert({
+        'settings': settings.toJson(),
+        'recipes': recipes.map((e) => e.toJson()).toList(),
+      });
+
+  Future<bool> importJson(String raw) async {
+    final data = jsonDecode(raw);
+    if (data is Map && data['recipes'] is List) {
+      recipes = (data['recipes'] as List).map((e) => Recipe.fromJson(e)).toList();
+      if (data['settings'] is Map) settings = AppSettings.fromJson(Map<String, dynamic>.from(data['settings']));
+    } else if (data is List) {
+      recipes = data.map((e) => Recipe.fromJson(e)).toList();
+    } else {
+      return false;
+    }
+    await save();
+    return true;
+  }
+
+  Future<void> resetSamples() async {
+    recipes = [sampleRecipe(), sampleDessert()];
+    await save();
   }
 }
 
@@ -513,82 +590,106 @@ class RecipeCard extends StatelessWidget {
   }
 }
 
-class DetailPage extends StatelessWidget {
+class DetailPage extends StatefulWidget {
   final Store store;
   final Recipe recipe;
   const DetailPage({super.key, required this.store, required this.recipe});
+  @override
+  State<DetailPage> createState() => _DetailPageState();
+}
+
+class _DetailPageState extends State<DetailPage> {
+  late String id;
+  @override
+  void initState() { super.initState(); id = widget.recipe.id; }
+  Recipe get recipe => widget.store.byId(id) ?? widget.recipe;
+
+  Future<void> _edit() async {
+    final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => RecipeEditorPage(store: widget.store, recipe: recipe)));
+    if (changed == true && mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: CustomScrollView(slivers: [
-        SliverAppBar(
-          expandedHeight: 310,
-          pinned: true,
-          backgroundColor: C.cream,
-          actions: [
-            IconButton.filledTonal(onPressed: () => openEditor(context, store, recipe: recipe), icon: const Icon(Icons.edit_rounded)),
-            const SizedBox(width: 8),
-          ],
-          flexibleSpace: FlexibleSpaceBar(background: Padding(padding: const EdgeInsets.fromLTRB(16, 70, 16, 18), child: RecipeImage(recipe: recipe, radius: 34))),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(22, 6, 22, 110),
-          sliver: SliverList.list(children: [
-            Text(recipe.title, style: const TextStyle(fontSize: 26, height: 1.08, fontWeight: FontWeight.w800, color: C.ink)),
-            const SizedBox(height: 9),
-            Row(children: [
-              const Icon(Icons.star_rounded, color: C.gold),
-              Text(' ${recipe.rating}/5', style: const TextStyle(fontWeight: FontWeight.w900)),
-              const SizedBox(width: 12),
-              Text(recipe.category, style: const TextStyle(color: C.muted, fontWeight: FontWeight.w800)),
+    final r = recipe;
+    return AnimatedBuilder(
+      animation: widget.store,
+      builder: (_, __) => Scaffold(
+        body: CustomScrollView(slivers: [
+          SliverAppBar(
+            expandedHeight: 295,
+            pinned: true,
+            backgroundColor: C.cream,
+            actions: [
+              IconButton.filledTonal(onPressed: _edit, icon: const Icon(Icons.edit_rounded)),
+              const SizedBox(width: 8),
+            ],
+            flexibleSpace: FlexibleSpaceBar(background: Padding(padding: const EdgeInsets.fromLTRB(16, 70, 16, 18), child: RecipeImage(recipe: r, radius: 34))),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(22, 6, 22, 110),
+            sliver: SliverList.list(children: [
+              Text(r.title, style: const TextStyle(fontSize: 25, height: 1.08, fontWeight: FontWeight.w800, color: C.ink)),
+              const SizedBox(height: 9),
+              Row(children: [
+                const Icon(Icons.star_rounded, color: C.gold),
+                Text(' ${r.rating}/5', style: const TextStyle(fontWeight: FontWeight.w900)),
+                const SizedBox(width: 12),
+                Text(r.category, style: const TextStyle(color: C.muted, fontWeight: FontWeight.w800)),
+              ]),
+              const SizedBox(height: 18),
+              Row(children: [
+                infoTile(Icons.schedule_rounded, '${r.minutes} min'),
+                infoTile(Icons.people_alt_rounded, '${r.servings} pers.'),
+                infoTile(Icons.thermostat_rounded, '${r.temp}°C'),
+                infoTile(Icons.signal_cellular_alt_rounded, r.difficulty),
+              ]),
+              const SizedBox(height: 18),
+              if (r.liquidNote.isNotEmpty) premiumNote(Icons.water_drop_rounded, 'Liquide conseillé', r.liquidNote),
+              _title('Ingrédients', action: TextButton.icon(onPressed: _edit, icon: const Icon(Icons.add_rounded), label: const Text('Gérer'))),
+              if (r.ingredients.isEmpty) premiumEmpty(Icons.kitchen_rounded, 'Aucun ingrédient', 'Ajoute les ingrédients depuis Modifier.'),
+              ...r.ingredients.map((i) => ingredientRow(i)),
+              _title('Étapes de cuisson', action: TextButton.icon(onPressed: _edit, icon: const Icon(Icons.add_alarm_rounded), label: const Text('Gérer'))),
+              if (r.steps.isEmpty) premiumEmpty(Icons.timer_off_rounded, 'Aucune étape', 'Ajoute les étapes avec durée, température et note anti-brûlure.'),
+              ...r.steps.asMap().entries.map((e) => stepRow(e.key, e.value)),
+              if (r.videos.isNotEmpty) _title('Vidéos'),
+              ...r.videos.map((v) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.play_circle_fill_rounded, color: C.terracotta),
+                    title: Text(v, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    onTap: () => launchUrl(Uri.parse(v), mode: LaunchMode.externalApplication),
+                  )),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: r.steps.isEmpty ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => CookingPage(recipe: r, store: widget.store))),
+                icon: const Icon(Icons.local_fire_department_rounded),
+                label: const Text('Commencer la cuisson'),
+                style: mainButtonStyle(),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ShoppingPage(store: widget.store, recipe: r))),
+                icon: const Icon(Icons.shopping_bag_outlined),
+                label: const Text('Liste de courses'),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 17), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
+              ),
             ]),
-            const SizedBox(height: 18),
-            Row(children: [
-              infoTile(Icons.schedule_rounded, '${recipe.minutes} min'),
-              infoTile(Icons.people_alt_rounded, '${recipe.servings} pers.'),
-              infoTile(Icons.thermostat_rounded, '${recipe.temp}°C'),
-              infoTile(Icons.signal_cellular_alt_rounded, recipe.difficulty),
-            ]),
-            const SizedBox(height: 18),
-            if (recipe.liquidNote.isNotEmpty) premiumNote(Icons.water_drop_rounded, 'Liquide conseillé', recipe.liquidNote),
-            _title('Ingrédients'),
-            ...recipe.ingredients.map((i) => ingredientRow(i)),
-            _title('Étapes de cuisson'),
-            ...recipe.steps.asMap().entries.map((e) => stepRow(e.key, e.value)),
-            if (recipe.videos.isNotEmpty) _title('Vidéos'),
-            ...recipe.videos.map((v) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.play_circle_fill_rounded, color: C.terracotta),
-                  title: Text(v, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
-                  onTap: () => launchUrl(Uri.parse(v), mode: LaunchMode.externalApplication),
-                )),
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: recipe.steps.isEmpty ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => CookingPage(recipe: recipe))),
-              icon: const Icon(Icons.local_fire_department_rounded),
-              label: const Text('Commencer la cuisson'),
-              style: FilledButton.styleFrom(backgroundColor: C.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ShoppingPage(store: store, recipe: recipe))),
-              icon: const Icon(Icons.shopping_bag_outlined),
-              label: const Text('Liste de courses'),
-              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 17), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
-            ),
-          ]),
-        ),
-      ]),
+          ),
+        ]),
+      ),
     );
   }
 
-  Widget _title(String t) => Padding(padding: const EdgeInsets.only(top: 24, bottom: 10), child: Text(t, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: C.ink)));
+  Widget _title(String t, {Widget? action}) => Padding(
+    padding: const EdgeInsets.only(top: 24, bottom: 10),
+    child: Row(children: [Expanded(child: Text(t, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: C.ink))), if (action != null) action]),
+  );
 }
 
 class CookingPage extends StatefulWidget {
   final Recipe recipe;
-  const CookingPage({super.key, required this.recipe});
+  final Store store;
+  const CookingPage({super.key, required this.recipe, required this.store});
   @override
   State<CookingPage> createState() => _CookingPageState();
 }
@@ -646,18 +747,18 @@ class _CookingPageState extends State<CookingPage> {
   Future<void> fireAlarm() async {
     if (alarmOpen) return;
     alarmOpen = true;
-    if (await Vibration.hasVibrator() ?? false) {
+    if (widget.store.settings.vibration && (await Vibration.hasVibrator() ?? false)) {
       Vibration.vibrate(pattern: [0, 700, 300, 900, 300, 1000]);
     }
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: AndroidNotificationDetails(
         'burn_alarm',
         'Alarmes cuisson',
         channelDescription: 'Alarmes anti-brûlure pour les recettes',
         importance: Importance.max,
         priority: Priority.high,
-        playSound: true,
-        fullScreenIntent: true,
+        playSound: widget.store.settings.alarmSound,
+        fullScreenIntent: widget.store.settings.showFullScreen,
       ),
     );
     await notifications.show(99, 'Temps écoulé', step.note.isEmpty ? 'Vérifie la cuisson maintenant.' : step.note, details);
@@ -798,55 +899,71 @@ class ShoppingPage extends StatefulWidget {
 }
 
 class _ShoppingPageState extends State<ShoppingPage> {
-  Recipe? selected;
+  String? selectedId;
   @override
   void initState() {
     super.initState();
-    selected = widget.recipe ?? (widget.store.recipes.isEmpty ? null : widget.store.recipes.first);
+    selectedId = widget.recipe?.id ?? (widget.store.recipes.isEmpty ? null : widget.store.recipes.first.id);
+  }
+
+  Recipe? get selected {
+    if (selectedId == null) return null;
+    return widget.store.byId(selectedId!) ?? (widget.store.recipes.isEmpty ? null : widget.store.recipes.first);
   }
 
   @override
   Widget build(BuildContext context) {
-    final r = selected;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Liste de courses', style: TextStyle(fontWeight: FontWeight.w900))),
-      body: r == null
-          ? const Center(child: Text('Aucune recette'))
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
-              children: [
-                DropdownButtonFormField<Recipe>(
-                  value: r,
-                  items: widget.store.recipes.map((e) => DropdownMenuItem(value: e, child: Text(e.title))).toList(),
-                  onChanged: (v) => setState(() => selected = v),
-                  decoration: inputDecoration('Choisir une recette'),
+    return AnimatedBuilder(
+      animation: widget.store,
+      builder: (_, __) {
+        final r = selected;
+        return Scaffold(
+          appBar: AppBar(title: const Text('Liste de courses', style: TextStyle(fontWeight: FontWeight.w900))),
+          body: r == null
+              ? Center(child: premiumEmpty(Icons.shopping_basket_outlined, 'Aucune recette', 'Ajoute une recette avec ingrédients.'))
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: r.id,
+                      items: widget.store.recipes.map((e) => DropdownMenuItem(value: e.id, child: Text(e.title, overflow: TextOverflow.ellipsis))).toList(),
+                      onChanged: (v) => setState(() => selectedId = v),
+                      decoration: inputDecoration('Choisir une recette'),
+                    ),
+                    const SizedBox(height: 18),
+                    premiumNote(Icons.checklist_rounded, 'Coche ce que tu as déjà', 'La liste exportée contient seulement les ingrédients manquants.'),
+                    const SizedBox(height: 10),
+                    if (r.ingredients.isEmpty) premiumEmpty(Icons.no_food_rounded, 'Aucun ingrédient', 'Ajoute des ingrédients dans Modifier recette.'),
+                    ...r.ingredients.map((i) => Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          decoration: soft(radius: 22),
+                          child: CheckboxListTile(
+                            value: i.have,
+                            activeColor: C.green,
+                            title: Text(i.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+                            subtitle: Text('${fmt(i.qty)} ${i.unit}'),
+                            onChanged: (v) async {
+                              setState(() => i.have = v ?? false);
+                              await widget.store.save();
+                            },
+                          ),
+                        )),
+                    Row(children: [
+                      Expanded(child: OutlinedButton.icon(onPressed: r.ingredients.isEmpty ? null : () { for (final i in r.ingredients) i.have = true; widget.store.save(); }, icon: const Icon(Icons.done_all_rounded), label: const Text('Tout cocher'))),
+                      const SizedBox(width: 10),
+                      Expanded(child: OutlinedButton.icon(onPressed: r.ingredients.isEmpty ? null : () { for (final i in r.ingredients) i.have = false; widget.store.save(); }, icon: const Icon(Icons.refresh_rounded), label: const Text('Réinitialiser'))),
+                    ]),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: r.ingredients.isEmpty ? null : () => exportMissing(context, r),
+                      icon: const Icon(Icons.ios_share_rounded),
+                      label: const Text('Exporter les ingrédients manquants'),
+                      style: mainButtonStyle(),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 18),
-                premiumNote(Icons.checklist_rounded, 'Coche ce que tu as déjà', 'L’export contient seulement les ingrédients manquants.'),
-                const SizedBox(height: 10),
-                ...r.ingredients.map((i) => Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      decoration: soft(radius: 22),
-                      child: CheckboxListTile(
-                        value: i.have,
-                        activeColor: C.green,
-                        title: Text(i.name, style: const TextStyle(fontWeight: FontWeight.w900)),
-                        subtitle: Text('${fmt(i.qty)} ${i.unit}'),
-                        onChanged: (v) {
-                          setState(() => i.have = v ?? false);
-                          widget.store.save();
-                        },
-                      ),
-                    )),
-                const SizedBox(height: 10),
-                FilledButton.icon(
-                  onPressed: () => exportMissing(context, r),
-                  icon: const Icon(Icons.ios_share_rounded),
-                  label: const Text('Exporter les ingrédients manquants'),
-                  style: mainButtonStyle(),
-                ),
-              ],
-            ),
+        );
+      },
     );
   }
 }
@@ -895,11 +1012,11 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
           ]),
           field('Liquide / mesure', r.liquidNote, (v) => r.liquidNote = v),
           sectionHeader('Ingrédients', () => editIngredient()),
-          ...r.ingredients.asMap().entries.map((e) => editorTile(e.value.name, '${fmt(e.value.qty)} ${e.value.unit}', () => editIngredient(index: e.key), () => setState(() => r.ingredients.removeAt(e.key)))),
+          ...r.ingredients.asMap().entries.map((e) => editorTile(e.value.name, '${fmt(e.value.qty)} ${e.value.unit}', () => editIngredient(index: e.key), () { setState(() => r.ingredients.removeAt(e.key)); if (widget.recipe != null) widget.store.upsert(r); })),
           sectionHeader('Étapes', () => editStep()),
-          ...r.steps.asMap().entries.map((e) => editorTile('Étape ${e.key + 1} · ${e.value.title}', '${e.value.minutes} min · ${e.value.temp}°C', () => editStep(index: e.key), () => setState(() => r.steps.removeAt(e.key)))),
+          ...r.steps.asMap().entries.map((e) => editorTile('Étape ${e.key + 1} · ${e.value.title}', '${e.value.minutes} min · ${e.value.temp}°C', () => editStep(index: e.key), () { setState(() => r.steps.removeAt(e.key)); if (widget.recipe != null) widget.store.upsert(r); })),
           sectionHeader('Liens vidéos', () => editVideo()),
-          ...r.videos.asMap().entries.map((e) => editorTile('Vidéo ${e.key + 1}', e.value, () => editVideo(index: e.key), () => setState(() => r.videos.removeAt(e.key)))),
+          ...r.videos.asMap().entries.map((e) => editorTile('Vidéo ${e.key + 1}', e.value, () => editVideo(index: e.key), () { setState(() => r.videos.removeAt(e.key)); if (widget.recipe != null) widget.store.upsert(r); })),
           const SizedBox(height: 12),
           FilledButton.icon(onPressed: save, icon: const Icon(Icons.save_rounded), label: const Text('Enregistrer'), style: mainButtonStyle()),
         ],
@@ -929,7 +1046,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       return;
     }
     widget.store.upsert(r);
-    Navigator.pop(context);
+    Navigator.pop(context, true);
   }
 
   Future<void> editIngredient({int? index}) async {
@@ -1042,40 +1159,84 @@ class MorePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Plus', style: TextStyle(fontWeight: FontWeight.w800))),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
-        premiumNote(Icons.card_giftcard_rounded, 'Cadeau premium', 'Une app simple pour sauvegarder, cuisiner et éviter les oublis grâce aux alarmes.'),
-        quickAction(context, Icons.insights_rounded, 'Dashboard', 'Recettes, favoris, étapes et alarmes', StatsPage(store: store)),
-        quickAction(context, Icons.tune_rounded, 'Paramètres', 'Alarmes, mesures, sauvegarde et apparence', SettingsPage(store: store)),
-        quickAction(context, Icons.straighten_rounded, 'Convertisseur mesures', 'Verre, litre, ml et cuillères', const ConverterPage()),
-        quickAction(context, Icons.backup_rounded, 'Sauvegarde', 'Les données sont sauvegardées localement', const BackupInfoPage()),
+        premiumNote(Icons.card_giftcard_rounded, 'Cadeau premium', 'Recettes, alarmes, courses, conversions et sauvegarde dans une seule app.'),
+        quickAction(context, Icons.insights_rounded, 'Dashboard', 'Statistiques et suivi cuisine', StatsPage(store: store)),
+        quickAction(context, Icons.tune_rounded, 'Paramètres', 'Alarmes, écran allumé, unités et préférences', SettingsPage(store: store)),
+        quickAction(context, Icons.straighten_rounded, 'Convertisseur mesures', 'Calculer verre, ml, litre, cuillères et farine', ConverterPage(store: store)),
+        quickAction(context, Icons.backup_rounded, 'Sauvegarde', 'Exporter, importer ou restaurer les données', BackupInfoPage(store: store)),
       ]),
     );
   }
 }
 
-class ConverterPage extends StatelessWidget {
-  const ConverterPage({super.key});
+class ConverterPage extends StatefulWidget {
+  final Store store;
+  const ConverterPage({super.key, required this.store});
+  @override
+  State<ConverterPage> createState() => _ConverterPageState();
+}
+
+class _ConverterPageState extends State<ConverterPage> {
+  final qty = TextEditingController(text: '1');
+  String unit = 'verre';
+  String ingredient = 'Liquide';
+  String result = '';
+
+  @override
+  void initState() { super.initState(); calculate(); }
+
+  void calculate() {
+    final q = double.tryParse(qty.text.replaceAll(',', '.')) ?? 0;
+    final glass = widget.store.settings.glassMl.toDouble();
+    double ml;
+    switch (unit) {
+      case 'litre': ml = q * 1000; break;
+      case 'cuillère à soupe': ml = q * 15; break;
+      case 'cuillère à café': ml = q * 5; break;
+      case 'ml': ml = q; break;
+      default: ml = q * glass;
+    }
+    if (ingredient == 'Farine') {
+      final gramsLow = ml / glass * 120;
+      final gramsHigh = ml / glass * 160;
+      result = '≈ ${fmt(gramsLow)} à ${fmt(gramsHigh)} g de farine';
+    } else if (ingredient == 'Sucre') {
+      result = '≈ ${fmt(ml / glass * 180)} g de sucre';
+    } else {
+      result = '= ${fmt(ml)} ml = ${fmt(ml / 1000)} L = environ ${fmt(ml / glass)} verre(s)';
+    }
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Convertisseur', style: TextStyle(fontWeight: FontWeight.w800))),
-        body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: const [
-          SettingTile(icon: Icons.local_drink_rounded, title: '1 verre', sub: '≈ 200 ml selon le verre maison'),
-          SettingTile(icon: Icons.water_drop_rounded, title: '1 litre', sub: '= 1000 ml = environ 5 verres'),
-          SettingTile(icon: Icons.soup_kitchen_rounded, title: '1 cuillère à soupe', sub: '≈ 15 ml'),
-          SettingTile(icon: Icons.coffee_rounded, title: '1 cuillère à café', sub: '≈ 5 ml'),
-          SettingTile(icon: Icons.bakery_dining_rounded, title: 'Farine', sub: '1 verre ≈ 120 à 160 g selon densité'),
+        body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
+          premiumNote(Icons.calculate_rounded, 'Calcul instantané', 'Le verre maison est réglé à ${widget.store.settings.glassMl} ml.'),
+          TextField(controller: qty, keyboardType: TextInputType.number, onChanged: (_) => calculate(), decoration: inputDecoration('Quantité')),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(value: unit, items: const ['verre','ml','litre','cuillère à soupe','cuillère à café'].map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v){unit=v??unit;calculate();}, decoration: inputDecoration('Unité')),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(value: ingredient, items: const ['Liquide','Farine','Sucre'].map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v){ingredient=v??ingredient;calculate();}, decoration: inputDecoration('Type')),
+          const SizedBox(height: 18),
+          Container(padding: const EdgeInsets.all(18), decoration: soft(radius: 26), child: Row(children: [const Icon(Icons.auto_awesome_rounded, color: C.gold), const SizedBox(width: 12), Expanded(child: Text(result, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)))])),
+          const SizedBox(height: 18),
+          const SettingTile(icon: Icons.local_drink_rounded, title: 'Repères utiles', sub: '1 verre ≈ 200 ml par défaut · 1 L ≈ 5 verres · 1 càs ≈ 15 ml · 1 càc ≈ 5 ml'),
         ]),
       );
 }
 
 class BackupInfoPage extends StatelessWidget {
-  const BackupInfoPage({super.key});
+  final Store store;
+  const BackupInfoPage({super.key, required this.store});
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Sauvegarde', style: TextStyle(fontWeight: FontWeight.w800))),
-        body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: const [
-          SettingTile(icon: Icons.phone_android_rounded, title: 'Sauvegarde locale', sub: 'Les recettes restent dans ce téléphone.'),
-          SettingTile(icon: Icons.lock_rounded, title: 'Privé', sub: 'Aucun compte obligatoire pour cette version.'),
-          SettingTile(icon: Icons.cloud_queue_rounded, title: 'Cloud plus tard', sub: 'On pourra ajouter Google Drive/Firebase ensuite.'),
+        body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
+          SettingTile(icon: Icons.copy_all_rounded, title: 'Exporter en JSON', sub: 'Copie une sauvegarde complète dans le presse-papiers', onTap: () { Clipboard.setData(ClipboardData(text: store.exportJson())); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sauvegarde copiée'))); }),
+          SettingTile(icon: Icons.restore_page_rounded, title: 'Importer depuis JSON', sub: 'Coller une sauvegarde exportée auparavant', onTap: () => importBackupDialog(context, store)),
+          SettingTile(icon: Icons.restart_alt_rounded, title: 'Restaurer les exemples', sub: 'Remettre les recettes de démonstration', onTap: () async { await store.resetSamples(); if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Exemples restaurés'))); }),
+          const SettingTile(icon: Icons.lock_rounded, title: 'Privé', sub: 'Les données restent dans ce téléphone pour cette version.'),
         ]),
       );
 }
@@ -1088,33 +1249,49 @@ class StatsPage extends StatelessWidget {
     final total = store.recipes.length;
     final fav = store.recipes.where((e) => e.favorite).length;
     final steps = store.recipes.fold<int>(0, (a, b) => a + b.steps.length);
+    final minutes = store.recipes.fold<int>(0, (a, b) => a + b.minutes);
+    final ingredients = store.recipes.fold<int>(0, (a, b) => a + b.ingredients.length);
+    final videos = store.recipes.fold<int>(0, (a, b) => a + b.videos.length);
+    final sorted = [...store.recipes]..sort((a,b)=>b.rating.compareTo(a.rating));
+    final top = sorted.isEmpty ? null : sorted.first;
     return Scaffold(
       appBar: AppBar(title: const Text('Dashboard', style: TextStyle(fontWeight: FontWeight.w900))),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
         Row(children: [statBox('Recettes', '$total', Icons.restaurant_rounded), statBox('Favoris', '$fav', Icons.favorite_rounded)]),
         Row(children: [statBox('Étapes', '$steps', Icons.checklist_rounded), statBox('Alarmes', '$steps', Icons.alarm_rounded)]),
+        Row(children: [statBox('Minutes', '${minutes}m', Icons.schedule_rounded), statBox('Ingrédients', '$ingredients', Icons.kitchen_rounded)]),
+        Row(children: [statBox('Vidéos', '$videos', Icons.play_circle_rounded), statBox('Moyenne', total==0?'0m':'${(minutes/total).round()}m', Icons.analytics_rounded)]),
+        if (top != null) premiumNote(Icons.star_rounded, 'Top recette', '${top.title} · ${top.rating}/5 · ${top.minutes} min'),
         premiumNote(Icons.auto_awesome_rounded, 'Conseil premium', 'Ajoute une note anti-brûlure à chaque étape importante : remuer, baisser le feu, vérifier l’eau.'),
       ]),
     );
   }
 }
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   final Store store;
   const SettingsPage({super.key, required this.store});
   @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  Future<void> save() async { await widget.store.save(); if (mounted) setState(() {}); }
+  @override
   Widget build(BuildContext context) {
+    final st = widget.store.settings;
     return Scaffold(
       appBar: AppBar(title: const Text('Paramètres', style: TextStyle(fontWeight: FontWeight.w800))),
-      body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: const [
-        SettingTile(icon: Icons.notifications_active_rounded, title: 'Alarmes anti-brûlure', sub: 'Sonnerie, vibration, plein écran et rappel +5 minutes'),
-        SettingTile(icon: Icons.volume_up_rounded, title: 'Sonnerie', sub: 'Son fort par défaut pour éviter les oublis'),
-        SettingTile(icon: Icons.phone_iphone_rounded, title: 'Écran allumé', sub: 'Le mode cuisson garde l’écran actif'),
-        SettingTile(icon: Icons.palette_rounded, title: 'Couleurs', sub: 'Crème, sauge, terracotta et doré doux'),
-        SettingTile(icon: Icons.straighten_rounded, title: 'Unités', sub: 'g, kg, ml, L, verre, cuillère, pièce, pincée'),
-        SettingTile(icon: Icons.shopping_basket_rounded, title: 'Courses', sub: 'Exporter seulement les ingrédients manquants'),
-        SettingTile(icon: Icons.image_rounded, title: 'Images', sub: 'Sélection depuis la galerie du téléphone'),
-        SettingTile(icon: Icons.backup_rounded, title: 'Sauvegarde locale', sub: 'Les recettes restent dans le téléphone'),
+      body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
+        SwitchTile(icon: Icons.notifications_active_rounded, title: 'Alarmes anti-brûlure', sub: 'Notification et alerte après le timer', value: st.showFullScreen, onChanged: (v){st.showFullScreen=v;save();}),
+        SwitchTile(icon: Icons.volume_up_rounded, title: 'Sonnerie', sub: 'Son actif pour éviter les oublis', value: st.alarmSound, onChanged: (v){st.alarmSound=v;save();}),
+        SwitchTile(icon: Icons.vibration_rounded, title: 'Vibration', sub: 'Vibre quand le temps est terminé', value: st.vibration, onChanged: (v){st.vibration=v;save();}),
+        SwitchTile(icon: Icons.phone_iphone_rounded, title: 'Écran allumé', sub: 'Le mode cuisson garde l’écran actif', value: st.keepAwake, onChanged: (v){st.keepAwake=v;save();}),
+        SwitchTile(icon: Icons.repeat_rounded, title: 'Rappel alarme', sub: 'Répéter si la cuisson n’est pas confirmée', value: st.repeatAlarm, onChanged: (v){st.repeatAlarm=v;save();}),
+        SettingTile(icon: Icons.local_drink_rounded, title: 'Taille du verre maison', sub: '${st.glassMl} ml', onTap: () => editGlassMl(context, widget.store, () => setState(() {}))),
+        SettingTile(icon: Icons.palette_rounded, title: 'Couleurs', sub: st.themeName, onTap: () => infoDialog(context, 'Couleurs', 'Palette actuelle : crème, sauge, terracotta et doré doux.')),
+        SettingTile(icon: Icons.shopping_basket_rounded, title: 'Courses', sub: 'Exporter seulement les ingrédients manquants', onTap: () => infoDialog(context, 'Courses', 'Dans Liste de courses, coche ce que tu as déjà. L’export contient seulement le reste.')),
+        SettingTile(icon: Icons.image_rounded, title: 'Images', sub: 'Sélection depuis la galerie du téléphone', onTap: () => infoDialog(context, 'Images', 'Utilise Modifier recette puis touche l’image pour choisir une photo.')),
       ]),
     );
   }
@@ -1124,15 +1301,73 @@ class SettingTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String sub;
-  const SettingTile({super.key, required this.icon, required this.title, required this.sub});
+  final VoidCallback? onTap;
+  const SettingTile({super.key, required this.icon, required this.title, required this.sub, this.onTap});
   @override
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: soft(radius: 24),
-        child: ListTile(leading: Icon(icon, color: C.green), title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)), subtitle: Text(sub), trailing: const Icon(Icons.chevron_right_rounded)),
+        child: ListTile(
+          onTap: onTap,
+          leading: Icon(icon, color: C.green),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+          subtitle: Text(sub),
+          trailing: onTap == null ? null : const Icon(Icons.chevron_right_rounded),
+        ),
       );
 }
 
+class SwitchTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String sub;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const SwitchTile({super.key, required this.icon, required this.title, required this.sub, required this.value, required this.onChanged});
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: soft(radius: 24),
+        child: SwitchListTile(
+          secondary: Icon(icon, color: C.green),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+          subtitle: Text(sub),
+          value: value,
+          activeColor: C.green,
+          onChanged: onChanged,
+        ),
+      );
+}
+
+Future<void> infoDialog(BuildContext context, String title, String message) async {
+  await showDialog(context: context, builder: (_) => AlertDialog(title: Text(title), content: Text(message), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))]));
+}
+
+Future<void> editGlassMl(BuildContext context, Store store, VoidCallback refresh) async {
+  final ctrl = TextEditingController(text: store.settings.glassMl.toString());
+  final v = await showDialog<int>(context: context, builder: (_) => AlertDialog(
+    title: const Text('Taille du verre maison'),
+    content: TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: inputDecoration('ml par verre')),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, int.tryParse(ctrl.text)), child: const Text('Enregistrer'))],
+  ));
+  if (v != null && v > 0) { store.settings.glassMl = v; await store.save(); refresh(); }
+}
+
+Future<void> importBackupDialog(BuildContext context, Store store) async {
+  final ctrl = TextEditingController();
+  final raw = await showDialog<String>(context: context, builder: (_) => AlertDialog(
+    title: const Text('Importer sauvegarde'),
+    content: TextField(controller: ctrl, minLines: 4, maxLines: 8, decoration: inputDecoration('Coller JSON ici')),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, ctrl.text), child: const Text('Importer'))],
+  ));
+  if (raw == null || raw.trim().isEmpty) return;
+  try {
+    final ok = await store.importJson(raw);
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Sauvegarde importée' : 'Format invalide')));
+  } catch (_) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('JSON invalide')));
+  }
+}
 
 Widget quickAction(BuildContext context, IconData icon, String title, String sub, Widget page) => Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1200,8 +1435,8 @@ class FoodArtPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-void openEditor(BuildContext context, Store store, {Recipe? recipe}) {
-  Navigator.push(context, MaterialPageRoute(builder: (_) => RecipeEditorPage(store: store, recipe: recipe)));
+Future<bool?> openEditor(BuildContext context, Store store, {Recipe? recipe}) {
+  return Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => RecipeEditorPage(store: store, recipe: recipe)));
 }
 
 IconData _catIcon(String c) {
