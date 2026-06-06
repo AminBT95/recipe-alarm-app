@@ -1,9 +1,18 @@
-# Recette Alarm Pro Flutter
+# Recette Alarm Flutter Premium
 
-Application Flutter premium pour recettes, ingrédients, étapes, minuteur anti-brûlure, liste de courses et favoris.
+Version propre pour GitHub Actions.
 
-## Build APK avec GitHub Actions
-1. Upload tout le contenu dans GitHub.
-2. Va dans Actions > Build Flutter Android APK.
-3. Lance Run workflow.
-4. Télécharge l'artifact APK.
+## Build APK
+1. Uploader tout le contenu du dossier dans GitHub.
+2. Aller dans **Actions**.
+3. Lancer **Build Flutter Android APK**.
+4. Télécharger l'APK dans **Artifacts**.
+
+## Inclus
+- UI Flutter moderne
+- Recettes sauvegardées localement
+- Images recettes depuis galerie
+- Ingrédients, étapes, degrés, liquide conseillé
+- Timer circulaire
+- Notifications + vibration
+- Liste de courses avec ingrédients manquants

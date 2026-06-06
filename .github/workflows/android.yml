@@ -8,22 +8,72 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - name: Prepare Android project
+          cache: true
+
+      - name: Recreate Android project safely
+        run: flutter create --platforms=android --project-name recette_alarm_pro .
+
+      - name: Patch Android SDK and desugaring
         run: |
-          if [ ! -d "android" ] || [ ! -f "android/app/build.gradle" ]; then
-            flutter create --platforms=android --project-name recette_alarm_pro .
-          fi
-      - name: Get dependencies
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle')
+          text = p.read_text()
+          text = text.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 35')
+          text = text.replace('compileSdk flutter.compileSdkVersion', 'compileSdk 35')
+          text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 23')
+          text = text.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 23')
+          text = text.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 35')
+          text = text.replace('targetSdkVersion flutter.targetSdkVersion', 'targetSdkVersion 35')
+
+          if 'coreLibraryDesugaringEnabled' not in text:
+              if 'compileOptions {' in text:
+                  text = text.replace('compileOptions {', 'compileOptions {\n        coreLibraryDesugaringEnabled true', 1)
+              else:
+                  text = text.replace('android {', 'android {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }', 1)
+
+          if 'sourceCompatibility = JavaVersion.VERSION_1_8' in text:
+              text = text.replace('sourceCompatibility = JavaVersion.VERSION_1_8', 'sourceCompatibility = JavaVersion.VERSION_17')
+          if 'targetCompatibility = JavaVersion.VERSION_1_8' in text:
+              text = text.replace('targetCompatibility = JavaVersion.VERSION_1_8', 'targetCompatibility = JavaVersion.VERSION_17')
+          if 'sourceCompatibility JavaVersion.VERSION_1_8' in text:
+              text = text.replace('sourceCompatibility JavaVersion.VERSION_1_8', 'sourceCompatibility JavaVersion.VERSION_17')
+          if 'targetCompatibility JavaVersion.VERSION_1_8' in text:
+              text = text.replace('targetCompatibility JavaVersion.VERSION_1_8', 'targetCompatibility JavaVersion.VERSION_17')
+
+          if 'coreLibraryDesugaring' not in text:
+              if 'dependencies {' in text:
+                  text = text.replace('dependencies {', "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'", 1)
+              else:
+                  text += "\n\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n}\n"
+          p.write_text(text)
+          gp = Path('android/gradle.properties')
+          gpt = gp.read_text() if gp.exists() else ''
+          if 'android.suppressUnsupportedCompileSdk=35' not in gpt:
+              gpt += '\nandroid.suppressUnsupportedCompileSdk=35\n'
+          gp.write_text(gpt)
+          PY
+
+      - name: Install dependencies
         run: flutter pub get
+
+      - name: Analyze Dart syntax
+        run: flutter analyze || true
+
       - name: Build APK
         run: flutter build apk --debug
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: recette-alarm-pro-debug-apk
+          name: recette-alarm-flutter-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
