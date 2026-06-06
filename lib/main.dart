@@ -42,28 +42,67 @@ class Ingredient {
   double qty;
   String unit;
   bool have;
-  Ingredient({required this.name, required this.qty, required this.unit, this.have = false});
-  Map<String, dynamic> toJson() => {'name': name, 'qty': qty, 'unit': unit, 'have': have};
+  String icon;
+  String imagePath;
+  Ingredient({required this.name, required this.qty, required this.unit, this.have = false, this.icon = 'restaurant', this.imagePath = ''});
+  Map<String, dynamic> toJson() => {'name': name, 'qty': qty, 'unit': unit, 'have': have, 'icon': icon, 'imagePath': imagePath};
   factory Ingredient.fromJson(Map<String, dynamic> j) => Ingredient(
         name: j['name'] ?? '',
         qty: (j['qty'] as num? ?? 0).toDouble(),
         unit: j['unit'] ?? '',
         have: j['have'] ?? false,
+        icon: j['icon'] ?? guessIngredientIcon(j['name'] ?? ''),
+        imagePath: j['imagePath'] ?? '',
       );
 }
 
 class CookStep {
   String title;
+  String type;
   int minutes;
+  int seconds;
   int temp;
   String note;
-  CookStep({required this.title, required this.minutes, required this.temp, required this.note});
-  Map<String, dynamic> toJson() => {'title': title, 'minutes': minutes, 'temp': temp, 'note': note};
+  String imagePath;
+  String videoUrl;
+  bool parallel;
+  int parallelGroup;
+  CookStep({
+    required this.title,
+    this.type = 'Cuisson',
+    required this.minutes,
+    this.seconds = 0,
+    required this.temp,
+    required this.note,
+    this.imagePath = '',
+    this.videoUrl = '',
+    this.parallel = false,
+    this.parallelGroup = 0,
+  });
+  int get totalSeconds => (minutes * 60) + seconds;
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'type': type,
+    'minutes': minutes,
+    'seconds': seconds,
+    'temp': temp,
+    'note': note,
+    'imagePath': imagePath,
+    'videoUrl': videoUrl,
+    'parallel': parallel,
+    'parallelGroup': parallelGroup,
+  };
   factory CookStep.fromJson(Map<String, dynamic> j) => CookStep(
         title: j['title'] ?? '',
+        type: j['type'] ?? 'Cuisson',
         minutes: j['minutes'] ?? 0,
+        seconds: j['seconds'] ?? 0,
         temp: j['temp'] ?? 0,
         note: j['note'] ?? '',
+        imagePath: j['imagePath'] ?? '',
+        videoUrl: j['videoUrl'] ?? '',
+        parallel: j['parallel'] ?? false,
+        parallelGroup: j['parallelGroup'] ?? 0,
       );
 }
 
@@ -74,6 +113,7 @@ class Recipe {
   String imagePath;
   String difficulty;
   String liquidNote;
+  String thawNote;
   int minutes;
   int servings;
   int rating;
@@ -90,6 +130,7 @@ class Recipe {
     this.imagePath = '',
     this.difficulty = 'Facile',
     this.liquidNote = '',
+    this.thawNote = '',
     this.minutes = 30,
     this.servings = 4,
     this.rating = 5,
@@ -109,6 +150,7 @@ class Recipe {
         'imagePath': imagePath,
         'difficulty': difficulty,
         'liquidNote': liquidNote,
+        'thawNote': thawNote,
         'minutes': minutes,
         'servings': servings,
         'rating': rating,
@@ -126,6 +168,7 @@ class Recipe {
         imagePath: j['imagePath'] ?? '',
         difficulty: j['difficulty'] ?? 'Facile',
         liquidNote: j['liquidNote'] ?? '',
+        thawNote: j['thawNote'] ?? '',
         minutes: j['minutes'] ?? 30,
         servings: j['servings'] ?? 4,
         rating: j['rating'] ?? 5,
@@ -146,6 +189,10 @@ class AppSettings {
   bool showFullScreen;
   int glassMl;
   String themeName;
+  bool thawNotifications;
+  bool autoBackup;
+  int defaultExtraMinutes;
+  double fontScale;
 
   AppSettings({
     this.alarmSound = true,
@@ -155,6 +202,10 @@ class AppSettings {
     this.showFullScreen = true,
     this.glassMl = 200,
     this.themeName = 'Crème premium',
+    this.thawNotifications = true,
+    this.autoBackup = true,
+    this.defaultExtraMinutes = 5,
+    this.fontScale = 1.0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -165,6 +216,10 @@ class AppSettings {
         'showFullScreen': showFullScreen,
         'glassMl': glassMl,
         'themeName': themeName,
+        'thawNotifications': thawNotifications,
+        'autoBackup': autoBackup,
+        'defaultExtraMinutes': defaultExtraMinutes,
+        'fontScale': fontScale,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -175,20 +230,34 @@ class AppSettings {
         showFullScreen: j['showFullScreen'] ?? true,
         glassMl: j['glassMl'] ?? 200,
         themeName: j['themeName'] ?? 'Crème premium',
+        thawNotifications: j['thawNotifications'] ?? true,
+        autoBackup: j['autoBackup'] ?? true,
+        defaultExtraMinutes: j['defaultExtraMinutes'] ?? 5,
+        fontScale: (j['fontScale'] as num? ?? 1.0).toDouble(),
       );
 }
 
 class Store extends ChangeNotifier {
   List<Recipe> recipes = [];
+  List<String> categories = ['Tajines','Desserts','Plats','Gâteaux','Jus','Soupes','Salades','Pain','Autres'];
+  Map<String, String> mealPlan = {};
   AppSettings settings = AppSettings();
 
   Future<void> load() async {
     final sp = await SharedPreferences.getInstance();
-    final raw = sp.getString('recipes_v3');
+    final raw = sp.getString('recipes_v4') ?? sp.getString('recipes_v3');
     final oldRaw = sp.getString('recipes_v2');
     final settingsRaw = sp.getString('settings_v1');
+    final catsRaw = sp.getString('categories_v1');
+    final mealRaw = sp.getString('meal_plan_v1');
     if (settingsRaw != null) {
       settings = AppSettings.fromJson(jsonDecode(settingsRaw));
+    }
+    if (catsRaw != null) {
+      categories = List<String>.from(jsonDecode(catsRaw));
+    }
+    if (mealRaw != null) {
+      mealPlan = Map<String, String>.from(jsonDecode(mealRaw));
     }
     final source = raw ?? oldRaw;
     if (source == null) {
@@ -202,8 +271,15 @@ class Store extends ChangeNotifier {
 
   Future<void> save({bool notify = true}) async {
     final sp = await SharedPreferences.getInstance();
-    await sp.setString('recipes_v3', jsonEncode(recipes.map((e) => e.toJson()).toList()));
+    final payload = jsonEncode(recipes.map((e) => e.toJson()).toList());
+    await sp.setString('recipes_v4', payload);
+    await sp.setString('recipes_v3', payload);
     await sp.setString('settings_v1', jsonEncode(settings.toJson()));
+    await sp.setString('categories_v1', jsonEncode(categories));
+    await sp.setString('meal_plan_v1', jsonEncode(mealPlan));
+    if (settings.autoBackup) {
+      await sp.setString('recette_alarm_auto_backup', exportJson());
+    }
     if (notify) notifyListeners();
   }
 
@@ -228,6 +304,8 @@ class Store extends ChangeNotifier {
 
   String exportJson() => const JsonEncoder.withIndent('  ').convert({
         'settings': settings.toJson(),
+        'categories': categories,
+        'mealPlan': mealPlan,
         'recipes': recipes.map((e) => e.toJson()).toList(),
       });
 
@@ -236,6 +314,8 @@ class Store extends ChangeNotifier {
     if (data is Map && data['recipes'] is List) {
       recipes = (data['recipes'] as List).map((e) => Recipe.fromJson(e)).toList();
       if (data['settings'] is Map) settings = AppSettings.fromJson(Map<String, dynamic>.from(data['settings']));
+      if (data['categories'] is List) categories = List<String>.from(data['categories']);
+      if (data['mealPlan'] is Map) mealPlan = Map<String, String>.from(data['mealPlan']);
     } else if (data is List) {
       recipes = data.map((e) => Recipe.fromJson(e)).toList();
     } else {
@@ -261,6 +341,7 @@ Recipe sampleRecipe() => Recipe(
       temp: 160,
       difficulty: 'Moyen',
       liquidNote: '0.7 L d’eau ≈ 3 verres et demi',
+      thawNote: 'Sortir le poulet du congélateur la veille au soir.',
       videos: ['https://youtube.com'],
       ingredients: [
         Ingredient(name: 'Poulet fermier', qty: 1.5, unit: 'kg'),
@@ -393,7 +474,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   String query = '';
   String category = 'Tous';
-  final cats = const ['Tous', 'Tajines', 'Desserts', 'Plats', 'Gâteaux', 'Jus'];
+  List<String> get cats => ['Tous', ...widget.store.categories];
 
   @override
   Widget build(BuildContext context) {
@@ -717,7 +798,7 @@ class _CookingPageState extends State<CookingPage> {
   }
 
   void _loadStep() {
-    total = (step.minutes <= 0 ? 1 : step.minutes * 60);
+    total = step.totalSeconds <= 0 ? 1 : step.totalSeconds;
     remaining = total;
     running = false;
   }
@@ -839,7 +920,9 @@ class _CookingPageState extends State<CookingPage> {
                 Text(step.title, style: const TextStyle(fontSize: 22, height: 1.15, fontWeight: FontWeight.w900, color: C.ink)),
                 const SizedBox(height: 12),
                 Wrap(spacing: 8, runSpacing: 8, children: [
-                  miniPill('${step.minutes} min', Icons.schedule_rounded),
+                  miniPill(step.seconds > 0 ? '${step.minutes}m ${step.seconds}s' : '${step.minutes} min', Icons.schedule_rounded),
+                  miniPill(step.type, stepTypeIcon(step.type)),
+                  if (step.parallel) miniPill('Parallèle', Icons.call_split_rounded),
                   if (step.temp > 0) miniPill('${step.temp}°C', Icons.thermostat_rounded),
                 ]),
                 if (step.note.isNotEmpty) ...[
@@ -999,7 +1082,8 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
           RecipeImage(recipe: r, radius: 30, height: 190, onTap: pickImage),
           const SizedBox(height: 18),
           field('Nom de la recette', r.title, (v) => r.title = v),
-          field('Catégorie', r.category, (v) => r.category = v),
+          DropdownButtonFormField<String>(value: widget.store.categories.contains(r.category) ? r.category : widget.store.categories.first, items: widget.store.categories.map((e)=>DropdownMenuItem(value:e, child: Text(e))).toList(), onChanged: (v)=>setState(()=>r.category=v??r.category), decoration: inputDecoration('Catégorie')),
+          const SizedBox(height: 12),
           Row(children: [
             Expanded(child: field('Temps', r.minutes.toString(), (v) => r.minutes = int.tryParse(v) ?? r.minutes, number: true)),
             const SizedBox(width: 10),
@@ -1011,10 +1095,11 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
             Expanded(child: field('Note /5', r.rating.toString(), (v) => r.rating = (int.tryParse(v) ?? r.rating).clamp(1, 5), number: true)),
           ]),
           field('Liquide / mesure', r.liquidNote, (v) => r.liquidNote = v),
+          field('À décongeler / préparation veille', r.thawNote, (v) => r.thawNote = v),
           sectionHeader('Ingrédients', () => editIngredient()),
           ...r.ingredients.asMap().entries.map((e) => editorTile(e.value.name, '${fmt(e.value.qty)} ${e.value.unit}', () => editIngredient(index: e.key), () { setState(() => r.ingredients.removeAt(e.key)); if (widget.recipe != null) widget.store.upsert(r); })),
           sectionHeader('Étapes', () => editStep()),
-          ...r.steps.asMap().entries.map((e) => editorTile('Étape ${e.key + 1} · ${e.value.title}', '${e.value.minutes} min · ${e.value.temp}°C', () => editStep(index: e.key), () { setState(() => r.steps.removeAt(e.key)); if (widget.recipe != null) widget.store.upsert(r); })),
+          ...r.steps.asMap().entries.map((e) => stepEditorTile(e.key, e.value, () => editStep(index: e.key), () { setState(() => r.steps.removeAt(e.key)); if (widget.recipe != null) widget.store.upsert(r); }, e.key > 0 ? () { setState(() { final item = r.steps.removeAt(e.key); r.steps.insert(e.key - 1, item); }); if (widget.recipe != null) widget.store.upsert(r); } : null, e.key < r.steps.length - 1 ? () { setState(() { final item = r.steps.removeAt(e.key); r.steps.insert(e.key + 1, item); }); if (widget.recipe != null) widget.store.upsert(r); } : null)),
           sectionHeader('Liens vidéos', () => editVideo()),
           ...r.videos.asMap().entries.map((e) => editorTile('Vidéo ${e.key + 1}', e.value, () => editVideo(index: e.key), () { setState(() => r.videos.removeAt(e.key)); if (widget.recipe != null) widget.store.upsert(r); })),
           const SizedBox(height: 12),
@@ -1053,59 +1138,71 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     final current = index == null ? Ingredient(name: '', qty: 1, unit: 'g') : r.ingredients[index];
     final name = TextEditingController(text: current.name);
     final qty = TextEditingController(text: fmt(current.qty));
-    final unit = TextEditingController(text: current.unit);
-    final result = await showDialog<Ingredient>(context: context, builder: (_) => AlertDialog(
+    String unit = current.unit.isEmpty ? 'g' : current.unit;
+    String icon = current.icon.isEmpty ? guessIngredientIcon(current.name) : current.icon;
+    final units = ['g','kg','ml','L','verre','cuillère à soupe','cuillère à café','pièce','pincée','pot'];
+    final icons = ['restaurant','chicken','meat','fish','egg','milk','flour','sugar','oil','water','onion','tomato','potato','carrot','lemon','olive','spice'];
+    final result = await showDialog<Ingredient>(context: context, builder: (_) => StatefulBuilder(builder: (context, setLocal) => AlertDialog(
       title: Text(index == null ? 'Ajouter ingrédient' : 'Modifier ingrédient'),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
         TextField(controller: name, decoration: inputDecoration('Nom')),
         const SizedBox(height: 10),
-        Row(children: [Expanded(child: TextField(controller: qty, keyboardType: TextInputType.number, decoration: inputDecoration('Quantité'))), const SizedBox(width: 8), Expanded(child: TextField(controller: unit, decoration: inputDecoration('Unité')))]),
-      ]),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, Ingredient(name: name.text, qty: double.tryParse(qty.text.replaceAll(',', '.')) ?? 1, unit: unit.text)), child: const Text('OK'))],
-    ));
-    if (result != null) {
+        Row(children: [Expanded(child: TextField(controller: qty, keyboardType: TextInputType.number, decoration: inputDecoration('Quantité'))), const SizedBox(width: 8), Expanded(child: DropdownButtonFormField<String>(value: units.contains(unit)?unit:'g', items: units.map((e)=>DropdownMenuItem(value:e, child: Row(children:[Icon(unitIcon(e), size:18), const SizedBox(width:6), Text(e)]))).toList(), onChanged: (v)=>setLocal(()=>unit=v??unit), decoration: inputDecoration('Unité')))]),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(value: icons.contains(icon)?icon:'restaurant', items: icons.map((e)=>DropdownMenuItem(value:e, child: Row(children:[Icon(ingredientIcon(e), size:18), const SizedBox(width:8), Text(iconLabel(e))]))).toList(), onChanged: (v)=>setLocal(()=>icon=v??icon), decoration: inputDecoration('Icône ingrédient')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, Ingredient(name: name.text.trim(), qty: double.tryParse(qty.text.replaceAll(',', '.')) ?? 1, unit: unit, icon: icon, have: current.have, imagePath: current.imagePath)), child: const Text('OK'))],
+    )));
+    if (result != null && result.name.trim().isNotEmpty) {
       setState(() {
-        if (index == null) {
-          r.ingredients.add(result);
-        } else {
-          r.ingredients[index] = result;
-        }
+        if (index == null) { r.ingredients.add(result); } else { r.ingredients[index] = result; }
       });
       if (widget.recipe != null) widget.store.upsert(r);
     }
   }
 
   Future<void> editStep({int? index}) async {
-    final current = index == null ? CookStep(title: '', minutes: 5, temp: r.temp, note: '') : r.steps[index];
+    final current = index == null ? CookStep(title: '', minutes: 5, seconds: 0, temp: r.temp, note: '') : r.steps[index];
     final title = TextEditingController(text: current.title);
     final min = TextEditingController(text: current.minutes.toString());
+    final sec = TextEditingController(text: current.seconds.toString());
     final temp = TextEditingController(text: current.temp.toString());
     final note = TextEditingController(text: current.note);
-    final result = await showDialog<CookStep>(context: context, builder: (_) => AlertDialog(
+    final video = TextEditingController(text: current.videoUrl);
+    String type = current.type;
+    bool parallel = current.parallel;
+    final types = ['Couper','Éplucher','Mixer','Mariner','Repos','Cuisson','Four','Friture','Vapeur','Décongélation','Dressage'];
+    final result = await showDialog<CookStep>(context: context, builder: (_) => StatefulBuilder(builder: (context, setLocal) => AlertDialog(
       title: Text(index == null ? 'Ajouter étape' : 'Modifier étape'),
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        DropdownButtonFormField<String>(value: types.contains(type)?type:'Cuisson', items: types.map((e)=>DropdownMenuItem(value:e, child: Row(children:[Icon(stepTypeIcon(e), size:18), const SizedBox(width:8), Text(e)]))).toList(), onChanged: (v)=>setLocal(()=>type=v??type), decoration: inputDecoration('Type d’étape')),
+        const SizedBox(height: 10),
         TextField(controller: title, decoration: inputDecoration('Titre étape')),
         const SizedBox(height: 10),
-        Row(children: [Expanded(child: TextField(controller: min, keyboardType: TextInputType.number, decoration: inputDecoration('Minutes'))), const SizedBox(width: 8), Expanded(child: TextField(controller: temp, keyboardType: TextInputType.number, decoration: inputDecoration('°C')))]),
+        Row(children: [Expanded(child: TextField(controller: min, keyboardType: TextInputType.number, decoration: inputDecoration('Minutes'))), const SizedBox(width: 8), Expanded(child: TextField(controller: sec, keyboardType: TextInputType.number, decoration: inputDecoration('Secondes')))]),
         const SizedBox(height: 10),
-        TextField(controller: note, minLines: 2, maxLines: 4, decoration: inputDecoration('Note anti-brûlure')),
+        TextField(controller: temp, keyboardType: TextInputType.number, decoration: inputDecoration('Température °C')),
+        const SizedBox(height: 10),
+        SwitchListTile(contentPadding: EdgeInsets.zero, value: parallel, title: const Text('Peut tourner en parallèle'), subtitle: const Text('Ex: couper les légumes pendant la cuisson'), onChanged: (v)=>setLocal(()=>parallel=v)),
+        TextField(controller: note, minLines: 2, maxLines: 4, decoration: inputDecoration('Note anti-brûlure / conseil')),
+        const SizedBox(height: 10),
+        TextField(controller: video, decoration: inputDecoration('Lien vidéo de cette étape')),
       ])),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, CookStep(title: title.text, minutes: int.tryParse(min.text) ?? 5, temp: int.tryParse(temp.text) ?? 0, note: note.text)), child: const Text('OK'))],
-    ));
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, CookStep(title: title.text, type: type, minutes: int.tryParse(min.text) ?? 5, seconds: int.tryParse(sec.text) ?? 0, temp: int.tryParse(temp.text) ?? 0, note: note.text, videoUrl: video.text, parallel: parallel)), child: const Text('OK'))],
+    )));
     if (result != null) {
       final clean = CookStep(
-        title: result.title.trim().isEmpty ? 'Nouvelle étape' : result.title.trim(),
-        minutes: result.minutes <= 0 ? 1 : result.minutes,
+        title: result.title.trim().isEmpty ? result.type : result.title.trim(),
+        type: result.type,
+        minutes: result.minutes < 0 ? 0 : result.minutes,
+        seconds: result.seconds.clamp(0, 59),
         temp: result.temp < 0 ? 0 : result.temp,
         note: result.note.trim(),
+        videoUrl: result.videoUrl.trim(),
+        imagePath: current.imagePath,
+        parallel: result.parallel,
       );
-      setState(() {
-        if (index == null) {
-          r.steps.add(clean);
-        } else {
-          r.steps[index] = clean;
-        }
-      });
+      setState(() { if (index == null) { r.steps.add(clean); } else { r.steps[index] = clean; } });
       if (widget.recipe != null) widget.store.upsert(r);
     }
   }
@@ -1130,6 +1227,27 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
   }
 }
 
+
+
+class MultiTimerPage extends StatefulWidget {
+  final Store store;
+  const MultiTimerPage({super.key, required this.store});
+  @override State<MultiTimerPage> createState()=>_MultiTimerPageState();
+}
+class _TimerItem { String title; int remaining; int total; Timer? timer; bool running=false; _TimerItem(this.title,this.remaining):total=remaining; }
+class _MultiTimerPageState extends State<MultiTimerPage> {
+  final items = <_TimerItem>[];
+  @override void dispose(){ for(final i in items){ i.timer?.cancel(); } super.dispose(); }
+  void addTimer(){ final title=TextEditingController(text:'Cuisson'); final min=TextEditingController(text:'5'); final sec=TextEditingController(text:'0'); showDialog(context: context, builder: (_)=>AlertDialog(title: const Text('Nouveau compteur'), content: Column(mainAxisSize: MainAxisSize.min, children:[TextField(controller:title, decoration: inputDecoration('Nom')), const SizedBox(height:8), Row(children:[Expanded(child:TextField(controller:min, keyboardType:TextInputType.number, decoration: inputDecoration('Min'))), const SizedBox(width:8), Expanded(child:TextField(controller:sec, keyboardType:TextInputType.number, decoration: inputDecoration('Sec')))])]), actions:[TextButton(onPressed:()=>Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed:(){final total=(int.tryParse(min.text)??0)*60+(int.tryParse(sec.text)??0); if(total>0){setState(()=>items.add(_TimerItem(title.text,total)));} Navigator.pop(context);}, child: const Text('Ajouter'))])); }
+  void toggle(_TimerItem it){ if(it.running){it.timer?.cancel(); setState(()=>it.running=false); return;} setState(()=>it.running=true); it.timer=Timer.periodic(const Duration(seconds:1), (_){ if(it.remaining<=1){ it.timer?.cancel(); setState(()=>it.running=false); notifications.show(DateTime.now().millisecondsSinceEpoch%100000, 'Compteur terminé', it.title, const NotificationDetails(android: AndroidNotificationDetails('multi_timers','Multi-compteurs', importance: Importance.max, priority: Priority.high))); } else { setState(()=>it.remaining--); }}); }
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Multi-compteurs', style: TextStyle(fontWeight:FontWeight.w900))), floatingActionButton: FloatingActionButton.extended(onPressed:addTimer, icon: const Icon(Icons.add), label: const Text('Compteur')), body: ListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), children:[premiumNote(Icons.timer_rounded,'Plusieurs cuissons à la fois','Lance poulet, légumes, sauce ou four en parallèle.'), ...items.map((it){final m=(it.remaining~/60).toString().padLeft(2,'0'); final sec=(it.remaining%60).toString().padLeft(2,'0'); return Container(margin: const EdgeInsets.only(bottom:12), padding: const EdgeInsets.all(16), decoration: soft(radius:24), child: Row(children:[Icon(Icons.timer_rounded, color:C.green), const SizedBox(width:12), Expanded(child: Column(crossAxisAlignment:CrossAxisAlignment.start, children:[Text(it.title, style: const TextStyle(fontWeight:FontWeight.w900)), Text('$m:$sec', style: const TextStyle(fontSize:28, fontWeight:FontWeight.w900))])), IconButton.filledTonal(onPressed:()=>toggle(it), icon: Icon(it.running?Icons.pause_rounded:Icons.play_arrow_rounded)), IconButton(onPressed:()=>setState(()=>items.remove(it)), icon: const Icon(Icons.delete_outline_rounded))]));})]));
+}
+
+class CategoriesPage extends StatefulWidget { final Store store; const CategoriesPage({super.key, required this.store}); @override State<CategoriesPage> createState()=>_CategoriesPageState(); }
+class _CategoriesPageState extends State<CategoriesPage>{ void add(){final c=TextEditingController(); showDialog(context:context,builder:(_)=>AlertDialog(title: const Text('Nouvelle catégorie'), content: TextField(controller:c, decoration: inputDecoration('Nom')), actions:[TextButton(onPressed:()=>Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed:(){final v=c.text.trim(); if(v.isNotEmpty&&!widget.store.categories.contains(v)){widget.store.categories.add(v); widget.store.save(); setState((){});} Navigator.pop(context);}, child: const Text('Ajouter'))]));} @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Catégories', style: TextStyle(fontWeight:FontWeight.w900))), floatingActionButton:FloatingActionButton.extended(onPressed:add, icon: const Icon(Icons.add), label: const Text('Catégorie')), body:ReorderableListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), onReorder:(oldIndex,newIndex){setState((){if(newIndex>oldIndex)newIndex--; final item=widget.store.categories.removeAt(oldIndex); widget.store.categories.insert(newIndex,item); widget.store.save();});}, children:[for(final c in widget.store.categories) Container(key:ValueKey(c), margin: const EdgeInsets.only(bottom:10), decoration: soft(radius:22), child: ListTile(leading: Icon(_catIcon(c), color:C.green), title: Text(c, style: const TextStyle(fontWeight:FontWeight.w900)), trailing: IconButton(icon: const Icon(Icons.delete_outline_rounded), onPressed: widget.store.categories.length<=1?null:(){setState((){widget.store.categories.remove(c); widget.store.save();});}))) ]));}
+
+class MealPlannerPage extends StatefulWidget { final Store store; const MealPlannerPage({super.key, required this.store}); @override State<MealPlannerPage> createState()=>_MealPlannerPageState(); }
+class _MealPlannerPageState extends State<MealPlannerPage>{ final days=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche']; final meals=['Déjeuner','Dîner']; @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Repas de la semaine', style: TextStyle(fontWeight:FontWeight.w900))), body:ListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), children:[premiumNote(Icons.ac_unit_rounded,'Décongélation intelligente','Prévois les repas et note ce qu’il faut sortir du congélateur.'), for(final d in days) Container(margin: const EdgeInsets.only(bottom:12), padding: const EdgeInsets.all(14), decoration: soft(radius:24), child: Column(crossAxisAlignment:CrossAxisAlignment.start, children:[Text(d, style: const TextStyle(fontSize:18, fontWeight:FontWeight.w900)), for(final meal in meals) Padding(padding: const EdgeInsets.only(top:8), child: DropdownButtonFormField<String>(value: widget.store.mealPlan['$d-$meal'], items: [const DropdownMenuItem<String>(value:null, child:Text('Aucun')), ...widget.store.recipes.map((r)=>DropdownMenuItem(value:r.id, child:Text(r.title, overflow:TextOverflow.ellipsis)))], onChanged:(v){setState((){ if(v==null){widget.store.mealPlan.remove('$d-$meal');}else{widget.store.mealPlan['$d-$meal']=v;} widget.store.save();});}, decoration: inputDecoration(meal))), Builder(builder:(_){final ids=meals.map((m)=>widget.store.mealPlan['$d-$m']).whereType<String>(); final notes=ids.map((id)=>widget.store.byId(id)?.thawNote??'').where((e)=>e.isNotEmpty).toList(); return notes.isEmpty?const SizedBox.shrink():Padding(padding: const EdgeInsets.only(top:10), child: Text('À décongeler : ${notes.join(' • ')}', style: const TextStyle(color:C.terracotta, fontWeight:FontWeight.w800)));})]))])); }
 
 class FavoritesPage extends StatelessWidget {
   final Store store;
@@ -1161,6 +1279,9 @@ class MorePage extends StatelessWidget {
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
         premiumNote(Icons.card_giftcard_rounded, 'Cadeau premium', 'Recettes, alarmes, courses, conversions et sauvegarde dans une seule app.'),
         quickAction(context, Icons.insights_rounded, 'Dashboard', 'Statistiques et suivi cuisine', StatsPage(store: store)),
+        quickAction(context, Icons.calendar_month_rounded, 'Repas de la semaine', 'Planning + rappels décongélation', MealPlannerPage(store: store)),
+        quickAction(context, Icons.timer_rounded, 'Multi-compteurs', 'Plusieurs timers en même temps', MultiTimerPage(store: store)),
+        quickAction(context, Icons.category_rounded, 'Catégories', 'Créer et organiser les rubriques', CategoriesPage(store: store)),
         quickAction(context, Icons.tune_rounded, 'Paramètres', 'Alarmes, écran allumé, unités et préférences', SettingsPage(store: store)),
         quickAction(context, Icons.straighten_rounded, 'Convertisseur mesures', 'Calculer verre, ml, litre, cuillères et farine', ConverterPage(store: store)),
         quickAction(context, Icons.backup_rounded, 'Sauvegarde', 'Exporter, importer ou restaurer les données', BackupInfoPage(store: store)),
@@ -1288,7 +1409,10 @@ class _SettingsPageState extends State<SettingsPage> {
         SwitchTile(icon: Icons.vibration_rounded, title: 'Vibration', sub: 'Vibre quand le temps est terminé', value: st.vibration, onChanged: (v){st.vibration=v;save();}),
         SwitchTile(icon: Icons.phone_iphone_rounded, title: 'Écran allumé', sub: 'Le mode cuisson garde l’écran actif', value: st.keepAwake, onChanged: (v){st.keepAwake=v;save();}),
         SwitchTile(icon: Icons.repeat_rounded, title: 'Rappel alarme', sub: 'Répéter si la cuisson n’est pas confirmée', value: st.repeatAlarm, onChanged: (v){st.repeatAlarm=v;save();}),
+        SwitchTile(icon: Icons.ac_unit_rounded, title: 'Rappels décongélation', sub: 'Prévenir quoi sortir du congélateur', value: st.thawNotifications, onChanged: (v){st.thawNotifications=v;save();}),
+        SwitchTile(icon: Icons.backup_rounded, title: 'Sauvegarde auto', sub: 'Créer une sauvegarde locale après chaque modification', value: st.autoBackup, onChanged: (v){st.autoBackup=v;save();}),
         SettingTile(icon: Icons.local_drink_rounded, title: 'Taille du verre maison', sub: '${st.glassMl} ml', onTap: () => editGlassMl(context, widget.store, () => setState(() {}))),
+        SettingTile(icon: Icons.add_alarm_rounded, title: 'Rallonge par défaut', sub: '+${st.defaultExtraMinutes} min', onTap: () => editDefaultExtra(context, widget.store, () => setState(() {}))),
         SettingTile(icon: Icons.palette_rounded, title: 'Couleurs', sub: st.themeName, onTap: () => infoDialog(context, 'Couleurs', 'Palette actuelle : crème, sauge, terracotta et doré doux.')),
         SettingTile(icon: Icons.shopping_basket_rounded, title: 'Courses', sub: 'Exporter seulement les ingrédients manquants', onTap: () => infoDialog(context, 'Courses', 'Dans Liste de courses, coche ce que tu as déjà. L’export contient seulement le reste.')),
         SettingTile(icon: Icons.image_rounded, title: 'Images', sub: 'Sélection depuis la galerie du téléphone', onTap: () => infoDialog(context, 'Images', 'Utilise Modifier recette puis touche l’image pour choisir une photo.')),
@@ -1351,6 +1475,17 @@ Future<void> editGlassMl(BuildContext context, Store store, VoidCallback refresh
     actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, int.tryParse(ctrl.text)), child: const Text('Enregistrer'))],
   ));
   if (v != null && v > 0) { store.settings.glassMl = v; await store.save(); refresh(); }
+}
+
+
+Future<void> editDefaultExtra(BuildContext context, Store store, VoidCallback refresh) async {
+  final ctrl = TextEditingController(text: store.settings.defaultExtraMinutes.toString());
+  final v = await showDialog<int>(context: context, builder: (_) => AlertDialog(
+    title: const Text('Rallonge par défaut'),
+    content: TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: inputDecoration('Minutes')),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, int.tryParse(ctrl.text)), child: const Text('Enregistrer'))],
+  ));
+  if (v != null && v >= 0) { store.settings.defaultExtraMinutes = v; await store.save(); refresh(); }
 }
 
 Future<void> importBackupDialog(BuildContext context, Store store) async {
@@ -1439,6 +1574,60 @@ Future<bool?> openEditor(BuildContext context, Store store, {Recipe? recipe}) {
   return Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => RecipeEditorPage(store: store, recipe: recipe)));
 }
 
+
+IconData unitIcon(String u){
+  if(u.contains('verre')||u=='ml'||u=='L') return Icons.local_drink_rounded;
+  if(u.contains('cuillère')) return Icons.soup_kitchen_rounded;
+  if(u.contains('pinc')) return Icons.grain_rounded;
+  if(u.contains('pièce')) return Icons.circle_outlined;
+  if(u=='kg'||u=='g') return Icons.scale_rounded;
+  return Icons.straighten_rounded;
+}
+IconData stepTypeIcon(String t){
+  switch(t){
+    case 'Couper': return Icons.content_cut_rounded;
+    case 'Éplucher': return Icons.spa_rounded;
+    case 'Mixer': return Icons.blender_rounded;
+    case 'Mariner': return Icons.hourglass_bottom_rounded;
+    case 'Repos': return Icons.hotel_rounded;
+    case 'Four': return Icons.local_fire_department_rounded;
+    case 'Friture': return Icons.oil_barrel_rounded;
+    case 'Vapeur': return Icons.cloud_rounded;
+    case 'Décongélation': return Icons.ac_unit_rounded;
+    case 'Dressage': return Icons.restaurant_rounded;
+    default: return Icons.timer_rounded;
+  }
+}
+String guessIngredientIcon(String name){
+  final n=name.toLowerCase();
+  if(n.contains('poulet')) return 'chicken'; if(n.contains('viande')||n.contains('bœuf')||n.contains('boeuf')) return 'meat'; if(n.contains('poisson')) return 'fish'; if(n.contains('œuf')||n.contains('oeuf')) return 'egg'; if(n.contains('lait')) return 'milk'; if(n.contains('farine')) return 'flour'; if(n.contains('sucre')) return 'sugar'; if(n.contains('huile')) return 'oil'; if(n.contains('eau')) return 'water'; if(n.contains('oignon')) return 'onion'; if(n.contains('tomate')) return 'tomato'; if(n.contains('pomme')) return 'potato'; if(n.contains('carotte')) return 'carrot'; if(n.contains('citron')) return 'lemon'; if(n.contains('olive')) return 'olive'; if(n.contains('safran')||n.contains('épice')||n.contains('epice')) return 'spice';
+  return 'restaurant';
+}
+IconData ingredientIcon(String key){
+  switch(key){
+    case 'chicken': return Icons.set_meal_rounded;
+    case 'meat': return Icons.dining_rounded;
+    case 'fish': return Icons.set_meal_rounded;
+    case 'egg': return Icons.egg_alt_rounded;
+    case 'milk': return Icons.local_drink_rounded;
+    case 'flour': return Icons.grass_rounded;
+    case 'sugar': return Icons.cake_rounded;
+    case 'oil': return Icons.water_drop_rounded;
+    case 'water': return Icons.opacity_rounded;
+    case 'onion': return Icons.spa_rounded;
+    case 'tomato': return Icons.circle_rounded;
+    case 'potato': return Icons.agriculture_rounded;
+    case 'carrot': return Icons.eco_rounded;
+    case 'lemon': return Icons.circle_outlined;
+    case 'olive': return Icons.scatter_plot_rounded;
+    case 'spice': return Icons.auto_awesome_rounded;
+    default: return Icons.restaurant_rounded;
+  }
+}
+String iconLabel(String key)=>{
+  'restaurant':'Général','chicken':'Poulet','meat':'Viande','fish':'Poisson','egg':'Œuf','milk':'Lait','flour':'Farine','sugar':'Sucre','oil':'Huile','water':'Eau','onion':'Oignon','tomato':'Tomate','potato':'Pomme de terre','carrot':'Carotte','lemon':'Citron','olive':'Olive','spice':'Épices'
+}[key]??key;
+
 IconData _catIcon(String c) {
   switch (c) {
     case 'Tajines': return Icons.soup_kitchen_rounded;
@@ -1484,7 +1673,7 @@ Widget ingredientRow(Ingredient i) => Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: soft(radius: 20),
-      child: Row(children: [const Icon(Icons.check_circle_outline_rounded, color: C.sage), const SizedBox(width: 10), Expanded(child: Text(i.name, style: const TextStyle(fontWeight: FontWeight.w900))), Text('${fmt(i.qty)} ${i.unit}', style: const TextStyle(color: C.muted, fontWeight: FontWeight.w900))]),
+      child: Row(children: [Icon(ingredientIcon(i.icon.isEmpty ? guessIngredientIcon(i.name) : i.icon), color: C.sage), const SizedBox(width: 10), Expanded(child: Text(i.name, style: const TextStyle(fontWeight: FontWeight.w900))), Icon(unitIcon(i.unit), size: 18, color: C.muted), const SizedBox(width: 5), Text('${fmt(i.qty)} ${i.unit}', style: const TextStyle(color: C.muted, fontWeight: FontWeight.w900))]),
     );
 
 Widget stepRow(int index, CookStep s) => Container(
@@ -1494,7 +1683,7 @@ Widget stepRow(int index, CookStep s) => Container(
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         CircleAvatar(backgroundColor: C.green, foregroundColor: Colors.white, radius: 16, child: Text('${index + 1}', style: const TextStyle(fontWeight: FontWeight.w900))),
         const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(s.title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)), const SizedBox(height: 6), Text('${s.minutes} min${s.temp > 0 ? ' · ${s.temp}°C' : ''}', style: const TextStyle(color: C.muted, fontWeight: FontWeight.w800)), if (s.note.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(s.note, style: const TextStyle(color: C.terracotta, height: 1.3, fontWeight: FontWeight.w700)))])),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(s.title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)), const SizedBox(height: 6), Wrap(spacing: 7, runSpacing: 7, children: [miniPill(s.type, stepTypeIcon(s.type)), miniPill(s.seconds > 0 ? '${s.minutes}m ${s.seconds}s' : '${s.minutes} min', Icons.schedule_rounded), if (s.temp > 0) miniPill('${s.temp}°C', Icons.thermostat_rounded), if (s.parallel) miniPill('en parallèle', Icons.call_split_rounded)]), if (s.note.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(s.note, style: const TextStyle(color: C.terracotta, height: 1.3, fontWeight: FontWeight.w700)))])),
       ]),
     );
 
@@ -1507,6 +1696,23 @@ Widget editorTile(String title, String sub, VoidCallback edit, VoidCallback dele
       margin: const EdgeInsets.only(bottom: 10),
       decoration: soft(radius: 22),
       child: ListTile(title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)), subtitle: Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis), onTap: edit, trailing: IconButton(icon: const Icon(Icons.delete_outline_rounded, color: C.red), onPressed: delete)),
+    );
+
+
+Widget stepEditorTile(int index, CookStep s, VoidCallback edit, VoidCallback delete, VoidCallback? up, VoidCallback? down) => Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: soft(radius: 22),
+      child: ListTile(
+        leading: Icon(stepTypeIcon(s.type), color: C.green),
+        title: Text('Étape ${index + 1} · ${s.title}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+        subtitle: Text('${s.type} · ${s.seconds > 0 ? '${s.minutes}m ${s.seconds}s' : '${s.minutes} min'}${s.parallel ? ' · parallèle' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis),
+        onTap: edit,
+        trailing: Wrap(spacing: 2, children: [
+          IconButton(onPressed: up, icon: const Icon(Icons.keyboard_arrow_up_rounded)),
+          IconButton(onPressed: down, icon: const Icon(Icons.keyboard_arrow_down_rounded)),
+          IconButton(icon: const Icon(Icons.delete_outline_rounded, color: C.red), onPressed: delete),
+        ]),
+      ),
     );
 
 Widget statBox(String title, String value, IconData icon) => Expanded(
