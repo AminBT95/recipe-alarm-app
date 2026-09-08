@@ -24,17 +24,20 @@ Future<void> main() async {
 }
 
 class C {
-  static const cream = Color(0xFFFBF4EA);
-  static const card = Color(0xFFFFFCF7);
-  static const ink = Color(0xFF1D2622);
-  static const muted = Color(0xFF80756B);
-  static const green = Color(0xFF5C715E);
-  static const sage = Color(0xFF9CAF96);
-  static const gold = Color(0xFFD7A84B);
-  static const terracotta = Color(0xFFB86B4B);
-  static const clay = Color(0xFFE8D3C0);
-  static const blush = Color(0xFFF4E6D8);
+  static const cream = Color(0xFFF7F4EE);
+  static const card = Color(0xFFFFFDF9);
+  static const ink = Color(0xFF17201C);
+  static const muted = Color(0xFF756E65);
+  static const green = Color(0xFF385B4A);
+  static const greenDark = Color(0xFF213E32);
+  static const sage = Color(0xFF9CB8A5);
+  static const gold = Color(0xFFD6A84E);
+  static const terracotta = Color(0xFFB96E4D);
+  static const clay = Color(0xFFE8DED1);
+  static const blush = Color(0xFFF2EAE0);
   static const red = Color(0xFFD95D59);
+  static const line = Color(0xFFE8E2D9);
+  static const warmWhite = Color(0xFFFFFAF3);
 }
 
 class Ingredient {
@@ -114,6 +117,9 @@ class Recipe {
   String id;
   String title;
   String category;
+  String cuisine;
+  List<String> tags;
+  bool importedFromLibrary;
   String imagePath;
   String difficulty;
   String liquidNote;
@@ -131,6 +137,9 @@ class Recipe {
     required this.id,
     required this.title,
     required this.category,
+    this.cuisine = 'Maison',
+    List<String>? tags,
+    this.importedFromLibrary = false,
     this.imagePath = '',
     this.difficulty = 'Facile',
     this.liquidNote = '',
@@ -143,7 +152,8 @@ class Recipe {
     List<String>? videos,
     List<Ingredient>? ingredients,
     List<CookStep>? steps,
-  })  : videos = videos ?? [],
+  })  : tags = tags ?? [],
+        videos = videos ?? [],
         ingredients = ingredients ?? [],
         steps = steps ?? [];
 
@@ -151,6 +161,9 @@ class Recipe {
         'id': id,
         'title': title,
         'category': category,
+        'cuisine': cuisine,
+        'tags': tags,
+        'importedFromLibrary': importedFromLibrary,
         'imagePath': imagePath,
         'difficulty': difficulty,
         'liquidNote': liquidNote,
@@ -169,6 +182,9 @@ class Recipe {
         id: j['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
         title: j['title'] ?? 'Recette',
         category: j['category'] ?? 'Autres',
+        cuisine: j['cuisine'] ?? 'Maison',
+        tags: List<String>.from(j['tags'] ?? []),
+        importedFromLibrary: j['importedFromLibrary'] ?? false,
         imagePath: j['imagePath'] ?? '',
         difficulty: j['difficulty'] ?? 'Facile',
         liquidNote: j['liquidNote'] ?? '',
@@ -184,6 +200,16 @@ class Recipe {
       );
 }
 
+
+class WeeklyShoppingEntry {
+  final String key;
+  final String name;
+  double qty;
+  final String unit;
+  bool purchased;
+  final Set<String> recipes;
+  WeeklyShoppingEntry({required this.key, required this.name, required this.qty, required this.unit, required this.purchased, Set<String>? recipes}) : recipes = recipes ?? <String>{};
+}
 
 class AppSettings {
   bool alarmSound;
@@ -257,6 +283,9 @@ class Store extends ChangeNotifier {
   List<Recipe> recipes = [];
   List<String> categories = ['Tajines','Desserts','Plats','Gâteaux','Jus','Soupes','Salades','Pain','Autres'];
   Map<String, String> mealPlan = {};
+  Map<String, int> mealServings = {};
+  Set<String> weeklyPurchased = <String>{};
+  bool weeklyShoppingReminder = false;
   Map<String, String> categoryIcons = {};
   AppSettings settings = AppSettings();
 
@@ -267,6 +296,9 @@ class Store extends ChangeNotifier {
     final settingsRaw = sp.getString('settings_v1');
     final catsRaw = sp.getString('categories_v1');
     final mealRaw = sp.getString('meal_plan_v1');
+    final servingsRaw = sp.getString('meal_servings_v11');
+    final purchasedRaw = sp.getString('weekly_purchased_v11');
+    final reminderRaw = sp.getBool('weekly_shopping_reminder_v11');
     final catIconsRaw = sp.getString('category_icons_v1');
     if (settingsRaw != null) {
       settings = AppSettings.fromJson(jsonDecode(settingsRaw));
@@ -277,6 +309,14 @@ class Store extends ChangeNotifier {
     if (mealRaw != null) {
       mealPlan = Map<String, String>.from(jsonDecode(mealRaw));
     }
+    if (servingsRaw != null) {
+      final decoded = Map<String, dynamic>.from(jsonDecode(servingsRaw));
+      mealServings = decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+    }
+    if (purchasedRaw != null) {
+      weeklyPurchased = Set<String>.from(jsonDecode(purchasedRaw));
+    }
+    weeklyShoppingReminder = reminderRaw ?? false;
     final source = raw ?? oldRaw;
     if (source == null) {
       recipes = [sampleRecipe(), sampleDessert()];
@@ -295,6 +335,9 @@ class Store extends ChangeNotifier {
     await sp.setString('settings_v1', jsonEncode(settings.toJson()));
     await sp.setString('categories_v1', jsonEncode(categories));
     await sp.setString('meal_plan_v1', jsonEncode(mealPlan));
+    await sp.setString('meal_servings_v11', jsonEncode(mealServings));
+    await sp.setString('weekly_purchased_v11', jsonEncode(weeklyPurchased.toList()));
+    await sp.setBool('weekly_shopping_reminder_v11', weeklyShoppingReminder);
     await sp.setString('category_icons_v1', jsonEncode(categoryIcons));
     if (settings.autoBackup) {
       await sp.setString('recette_alarm_auto_backup', exportJson());
@@ -325,6 +368,9 @@ class Store extends ChangeNotifier {
         'settings': settings.toJson(),
         'categories': categories,
         'mealPlan': mealPlan,
+        'mealServings': mealServings,
+        'weeklyPurchased': weeklyPurchased.toList(),
+        'weeklyShoppingReminder': weeklyShoppingReminder,
         'categoryIcons': categoryIcons,
         'recipes': recipes.map((e) => e.toJson()).toList(),
       });
@@ -336,6 +382,9 @@ class Store extends ChangeNotifier {
       if (data['settings'] is Map) settings = AppSettings.fromJson(Map<String, dynamic>.from(data['settings']));
       if (data['categories'] is List) categories = List<String>.from(data['categories']);
       if (data['mealPlan'] is Map) mealPlan = Map<String, String>.from(data['mealPlan']);
+      if (data['mealServings'] is Map) { final x=Map<String,dynamic>.from(data['mealServings']); mealServings=x.map((k,v)=>MapEntry(k,(v as num).toInt())); }
+      if (data['weeklyPurchased'] is List) weeklyPurchased = Set<String>.from(data['weeklyPurchased']);
+      if (data['weeklyShoppingReminder'] is bool) weeklyShoppingReminder = data['weeklyShoppingReminder'];
       if (data['categoryIcons'] is Map) categoryIcons = Map<String, String>.from(data['categoryIcons']);
     } else if (data is List) {
       recipes = data.map((e) => Recipe.fromJson(e)).toList();
@@ -344,6 +393,91 @@ class Store extends ChangeNotifier {
     }
     await save();
     return true;
+  }
+
+  List<WeeklyShoppingEntry> weeklyShoppingEntries() {
+    final grouped = <String, WeeklyShoppingEntry>{};
+    for (final entry in mealPlan.entries) {
+      final recipe = byId(entry.value);
+      if (recipe == null) continue;
+      final servings = mealServings[entry.key] ?? recipe.servings;
+      final factor = recipe.servings <= 0 ? 1.0 : servings / recipe.servings;
+      for (final ingredient in recipe.ingredients) {
+        final normalizedName = ingredient.name.trim().toLowerCase();
+        final normalizedUnit = ingredient.unit.trim().toLowerCase();
+        final key = '$normalizedName|$normalizedUnit';
+        final existing = grouped[key];
+        final qty = ingredient.qty * factor;
+        if (existing == null) {
+          grouped[key] = WeeklyShoppingEntry(
+            key: key,
+            name: ingredient.name,
+            qty: qty,
+            unit: ingredient.unit,
+            purchased: weeklyPurchased.contains(key),
+            recipes: <String>{recipe.title},
+          );
+        } else {
+          existing.qty += qty;
+          existing.recipes.add(recipe.title);
+          existing.purchased = weeklyPurchased.contains(key);
+        }
+      }
+    }
+    final result = grouped.values.toList();
+    result.sort((a,b) {
+      if (a.purchased != b.purchased) return a.purchased ? 1 : -1;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return result;
+  }
+
+  Future<void> setWeeklyPurchased(String key, bool value) async {
+    if (value) { weeklyPurchased.add(key); } else { weeklyPurchased.remove(key); }
+    await save();
+  }
+
+  Future<void> resetWeeklyPurchased() async {
+    weeklyPurchased.clear();
+    await save();
+  }
+
+  Future<void> setWeeklyShoppingReminder(bool enabled) async {
+    weeklyShoppingReminder = enabled;
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'weekly_shopping',
+        'Courses de la semaine',
+        channelDescription: 'Rappel hebdomadaire pour préparer les courses des repas planifiés',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+    );
+    if (enabled) {
+      final remaining = weeklyShoppingEntries().where((e) => !e.purchased).length;
+      await notifications.periodicallyShow(
+        401,
+        'Courses de la semaine 🛒',
+        remaining == 0 ? 'Prépare le planning de la semaine et génère ta liste de courses.' : '$remaining produits sont à vérifier dans ta liste de courses.',
+        RepeatInterval.weekly,
+        details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    } else {
+      await notifications.cancel(401);
+    }
+    await save();
+  }
+
+  bool isLibraryRecipeImported(Recipe recipe) => recipes.any((r) => r.id == recipe.id || (r.title.toLowerCase() == recipe.title.toLowerCase() && r.cuisine == recipe.cuisine));
+
+  Future<void> importLibraryRecipe(Recipe recipe) async {
+    if (isLibraryRecipeImported(recipe)) return;
+    final copy = Recipe.fromJson(recipe.toJson());
+    copy.importedFromLibrary = true;
+    recipes.insert(0, copy);
+    if (!categories.contains(copy.category)) categories.add(copy.category);
+    await save();
   }
 
   Future<void> resetSamples() async {
@@ -425,13 +559,54 @@ class _RecetteAlarmAppState extends State<RecetteAlarmApp> {
         theme: ThemeData(
           useMaterial3: true,
           scaffoldBackgroundColor: C.cream,
-          colorScheme: ColorScheme.fromSeed(seedColor: C.green, primary: C.green, secondary: C.terracotta, tertiary: C.gold, surface: C.card),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: C.green,
+            primary: C.green,
+            secondary: C.terracotta,
+            tertiary: C.gold,
+            surface: C.card,
+            brightness: Brightness.light,
+          ),
           textTheme: GoogleFonts.plusJakartaSansTextTheme().apply(bodyColor: C.ink, displayColor: C.ink),
-          appBarTheme: const AppBarTheme(backgroundColor: C.cream, elevation: 0, foregroundColor: C.ink, centerTitle: false),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: C.cream,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            foregroundColor: C.ink,
+            centerTitle: false,
+          ),
           navigationBarTheme: NavigationBarThemeData(
-            backgroundColor: C.card,
-            indicatorColor: C.green.withOpacity(.12),
-            labelTextStyle: WidgetStateProperty.all(const TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
+            backgroundColor: Colors.transparent,
+            indicatorColor: C.green.withOpacity(.10),
+            labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
+              fontWeight: states.contains(WidgetState.selected) ? FontWeight.w900 : FontWeight.w700,
+              fontSize: 11,
+              color: states.contains(WidgetState.selected) ? C.greenDark : C.muted,
+            )),
+            iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
+              color: states.contains(WidgetState.selected) ? C.green : C.muted,
+            )),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: C.card,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide.none),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: const BorderSide(color: C.line)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: const BorderSide(color: C.green, width: 1.4)),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              backgroundColor: C.green,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              textStyle: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+          cardTheme: CardTheme(
+            color: C.card,
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26), side: const BorderSide(color: C.line)),
           ),
         ),
         home: MainShell(store: store),
@@ -454,8 +629,9 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final pages = [
       HomePage(store: widget.store, onAdd: () => openEditor(context, widget.store)),
+      MealPlannerPage(store: widget.store),
       ShoppingPage(store: widget.store),
-      FavoritesPage(store: widget.store),
+      RecipeLibraryPage(store: widget.store),
       MorePage(store: widget.store),
     ];
     return Scaffold(
@@ -464,18 +640,27 @@ class _MainShellState extends State<MainShell> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: NavigationBar(
-              selectedIndex: index,
-              height: 66,
-              onDestinationSelected: (i) => setState(() => index = i),
-              destinations: const [
-                NavigationDestination(icon: Icon(Icons.restaurant_menu_outlined), selectedIcon: Icon(Icons.restaurant_menu_rounded), label: 'Recettes'),
-                NavigationDestination(icon: Icon(Icons.shopping_basket_outlined), selectedIcon: Icon(Icons.shopping_basket_rounded), label: 'Courses'),
-                NavigationDestination(icon: Icon(Icons.favorite_outline_rounded), selectedIcon: Icon(Icons.favorite_rounded), label: 'Favoris'),
-                NavigationDestination(icon: Icon(Icons.grid_view_rounded), selectedIcon: Icon(Icons.dashboard_customize_rounded), label: 'Plus'),
-              ],
+          child: Container(
+            decoration: BoxDecoration(
+              color: C.card,
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: C.line),
+              boxShadow: const [BoxShadow(color: Color(0x16000000), blurRadius: 28, offset: Offset(0, 12))],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(30),
+              child: NavigationBar(
+                selectedIndex: index,
+                height: 70,
+                onDestinationSelected: (i) => setState(() => index = i),
+                destinations: const [
+                  NavigationDestination(icon: Icon(Icons.restaurant_menu_outlined), selectedIcon: Icon(Icons.restaurant_menu_rounded), label: 'Accueil'),
+                  NavigationDestination(icon: Icon(Icons.calendar_month_outlined), selectedIcon: Icon(Icons.calendar_month_rounded), label: 'Semaine'),
+                  NavigationDestination(icon: Icon(Icons.shopping_bag_outlined), selectedIcon: Icon(Icons.shopping_bag_rounded), label: 'Courses'),
+                  NavigationDestination(icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book_rounded), label: 'Bibliothèque'),
+                  NavigationDestination(icon: Icon(Icons.grid_view_rounded), selectedIcon: Icon(Icons.dashboard_customize_rounded), label: 'Plus'),
+                ],
+              ),
             ),
           ),
         ),
@@ -501,7 +686,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final list = widget.store.recipes.where((r) {
       final q = query.toLowerCase().trim();
-      final matchQuery = q.isEmpty || r.title.toLowerCase().contains(q) || r.category.toLowerCase().contains(q) || r.ingredients.any((i)=>i.name.toLowerCase().contains(q)) || r.steps.any((st)=>st.title.toLowerCase().contains(q) || st.type.toLowerCase().contains(q));
+      final matchQuery = q.isEmpty || r.title.toLowerCase().contains(q) || r.category.toLowerCase().contains(q) || r.cuisine.toLowerCase().contains(q) || r.tags.any((t)=>t.toLowerCase().contains(q)) || r.ingredients.any((i)=>i.name.toLowerCase().contains(q)) || r.steps.any((st)=>st.title.toLowerCase().contains(q) || st.type.toLowerCase().contains(q));
       final matchCat = category == 'Tous' || r.category == category;
       return matchQuery && matchCat;
     }).toList();
@@ -528,8 +713,12 @@ class _HomePageState extends State<HomePage> {
                 _categoryBar(),
                 const SizedBox(height: 18),
                 _smartCard(),
-                const SizedBox(height: 22),
-                _section('Recettes', '${list.length} disponibles'),
+                const SizedBox(height: 16),
+                _overviewRow(),
+                const SizedBox(height: 14),
+                _weekSnapshot(),
+                const SizedBox(height: 24),
+                _section('Mes recettes', '${list.length} disponibles'),
                 const SizedBox(height: 14),
               ]),
             ),
@@ -555,34 +744,55 @@ class _HomePageState extends State<HomePage> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(color: C.green, borderRadius: BorderRadius.circular(20)),
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [C.green, C.greenDark]),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: const [BoxShadow(color: Color(0x26385B4A), blurRadius: 18, offset: Offset(0, 8))],
+            ),
             child: const Icon(Icons.local_dining_rounded, color: Colors.white),
           ),
           const SizedBox(width: 14),
           const Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Bonjour Soukaina 👋', style: TextStyle(fontSize: 14, color: C.muted, fontWeight: FontWeight.w700)),
-              SizedBox(height: 3),
-              Text('Que cuisine-t-on aujourd’hui ?', style: TextStyle(fontSize: 22, height: 1.12, color: C.ink, fontWeight: FontWeight.w800)),
+              Text('BONJOUR 👋', style: TextStyle(fontSize: 11, letterSpacing: 1.4, color: C.muted, fontWeight: FontWeight.w900)),
+              SizedBox(height: 4),
+              Text('Votre cuisine, mieux organisée.', style: TextStyle(fontSize: 21, height: 1.12, color: C.ink, fontWeight: FontWeight.w900)),
             ]),
           ),
-          IconButton.filledTonal(onPressed: () {}, icon: const Icon(Icons.notifications_none_rounded)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(color: C.warmWhite, borderRadius: BorderRadius.circular(16), border: Border.all(color: C.line)),
+            child: const Row(children: [Icon(Icons.workspace_premium_rounded, color: C.gold, size: 18), SizedBox(width: 5), Text('PRO', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11))]),
+          ),
         ],
       );
 
   Widget _search() => Container(
-        decoration: soft(radius: 24),
+        decoration: BoxDecoration(
+          color: C.card,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: C.line),
+          boxShadow: const [BoxShadow(color: Color(0x0B000000), blurRadius: 16, offset: Offset(0, 7))],
+        ),
         child: TextField(
           onChanged: (v) => setState(() => query = v),
           style: const TextStyle(fontWeight: FontWeight.w700),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
+            filled: false,
             border: InputBorder.none,
-            prefixIcon: Icon(Icons.search_rounded),
-            suffixIcon: Icon(Icons.filter_list_rounded),
-            hintText: 'Rechercher recette, ingrédient...',
-            contentPadding: EdgeInsets.symmetric(vertical: 17),
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            prefixIcon: const Icon(Icons.search_rounded, color: C.green),
+            suffixIcon: Container(
+              margin: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(14)),
+              child: const Icon(Icons.tune_rounded, size: 20, color: C.greenDark),
+            ),
+            hintText: 'Recette, ingrédient, étape…',
+            hintStyle: const TextStyle(color: C.muted, fontWeight: FontWeight.w600),
+            contentPadding: const EdgeInsets.symmetric(vertical: 17),
           ),
         ),
       );
@@ -611,28 +821,89 @@ class _HomePageState extends State<HomePage> {
       );
 
   Widget _smartCard() => Container(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(30),
-          gradient: const LinearGradient(colors: [Color(0xFF5C715E), Color(0xFF8D7B68)]),
-          boxShadow: shadow(),
+          gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [C.greenDark, C.green, Color(0xFF6D806B)]),
+          boxShadow: const [BoxShadow(color: Color(0x2A213E32), blurRadius: 30, offset: Offset(0, 14))],
         ),
-        child: Row(children: [
-          const Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Mode anti-brûlure', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
-              SizedBox(height: 8),
-              Text('Alarmes fortes, vibration et étapes claires pendant la cuisson.', style: TextStyle(color: Color(0xFFE9F4EC), height: 1.35, fontWeight: FontWeight.w600)),
-            ]),
-          ),
-          Container(
-            width: 72,
-            height: 66,
-            decoration: BoxDecoration(color: Colors.white.withOpacity(.16), borderRadius: BorderRadius.circular(26)),
-            child: const Icon(Icons.timer_rounded, color: C.gold, size: 38),
-          ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(.12), borderRadius: BorderRadius.circular(999)),
+              child: const Row(children: [Icon(Icons.auto_awesome_rounded, color: C.gold, size: 16), SizedBox(width: 6), Text('SMART KITCHEN', style: TextStyle(color: Colors.white, fontSize: 11, letterSpacing: .8, fontWeight: FontWeight.w900))]),
+            ),
+            const Spacer(),
+            const Icon(Icons.restaurant_rounded, color: Colors.white54),
+          ]),
+          const SizedBox(height: 17),
+          const Text('Cuisinez sans stress.', style: TextStyle(color: Colors.white, fontSize: 24, height: 1.05, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          const Text('Portions, chronos, ingrédients disponibles et timeline de préparation réunis au même endroit.', style: TextStyle(color: Color(0xFFE7F0EA), height: 1.45, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 17),
+          Row(children: [
+            Expanded(
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: C.greenDark),
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SmartKitchenPage(store: widget.store))),
+                icon: const Icon(Icons.auto_awesome_rounded, size: 19),
+                label: const Text('Ouvrir Smart Kitchen'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              width: 50, height: 50,
+              decoration: BoxDecoration(color: Colors.white.withOpacity(.12), borderRadius: BorderRadius.circular(17)),
+              child: const Icon(Icons.timer_rounded, color: C.gold),
+            ),
+          ]),
         ]),
       );
+
+  Widget _overviewRow() {
+    final favorites = widget.store.recipes.where((r) => r.favorite).length;
+    final planned = widget.store.mealPlan.values.where((id) => id.isNotEmpty).length;
+    return Row(children: [
+      Expanded(child: _metricCard(Icons.menu_book_rounded, '${widget.store.recipes.length}', 'Recettes')),
+      const SizedBox(width: 10),
+      Expanded(child: _metricCard(Icons.favorite_rounded, '$favorites', 'Favoris')),
+      const SizedBox(width: 10),
+      Expanded(child: _metricCard(Icons.calendar_month_rounded, '$planned', 'Planifiés')),
+    ]);
+  }
+
+  Widget _weekSnapshot() {
+    final items = widget.store.weeklyShoppingEntries();
+    final bought = items.where((e) => e.purchased).length;
+    final planned = widget.store.mealPlan.values.where((e) => e.isNotEmpty).length;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(24), border: Border.all(color: C.line)),
+      child: Row(children: [
+        Container(width: 48, height: 48, decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(16)), child: const Icon(Icons.shopping_cart_checkout_rounded, color: C.green)),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Cette semaine', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+          const SizedBox(height: 3),
+          Text('$planned repas · $bought/${items.length} courses cochées', style: const TextStyle(color: C.muted, fontWeight: FontWeight.w700, fontSize: 12.5)),
+        ])),
+        const Icon(Icons.arrow_forward_ios_rounded, size: 15, color: C.muted),
+      ]),
+    );
+  }
+
+  Widget _metricCard(IconData icon, String value, String label) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+    decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(20), border: Border.all(color: C.line)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(icon, size: 20, color: C.green),
+      const SizedBox(height: 10),
+      Text(value, style: const TextStyle(fontSize: 20, height: 1, fontWeight: FontWeight.w900, color: C.ink)),
+      const SizedBox(height: 4),
+      Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: C.muted, fontWeight: FontWeight.w800)),
+    ]),
+  );
 
   Widget _section(String title, String sub) => Row(children: [
         Expanded(child: Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: C.ink))),
@@ -652,11 +923,12 @@ class RecipeCard extends StatelessWidget {
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(store: store, recipe: recipe))),
       child: Container(
         clipBehavior: Clip.antiAlias,
-        decoration: soft(radius: 28),
+        decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(28), border: Border.all(color: C.line), boxShadow: const [BoxShadow(color: Color(0x0D000000), blurRadius: 20, offset: Offset(0, 9))]),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(
             child: Stack(children: [
               Positioned.fill(child: RecipeImage(recipe: recipe, radius: 28)),
+              Positioned(left: 10, top: 10, child: miniPill(recipe.category, _catIcon(recipe.category))),
               Positioned(left: 10, bottom: 10, child: miniPill('${recipe.minutes} min', Icons.schedule_rounded)),
               Positioned(
                 right: 8,
@@ -675,8 +947,6 @@ class RecipeCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(recipe.category, style: const TextStyle(color: C.green, fontSize: 12, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 4),
               Text(recipe.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14.5, height: 1.18, fontWeight: FontWeight.w800, color: C.ink)),
               const SizedBox(height: 8),
               Row(children: [
@@ -732,8 +1002,12 @@ class _DetailPageState extends State<DetailPage> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(22, 6, 22, 110),
             sliver: SliverList.list(children: [
-              Text(r.title, style: const TextStyle(fontSize: 25, height: 1.08, fontWeight: FontWeight.w800, color: C.ink)),
-              const SizedBox(height: 9),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: Text(r.title, style: const TextStyle(fontSize: 27, height: 1.06, fontWeight: FontWeight.w900, color: C.ink))),
+                const SizedBox(width: 12),
+                Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6), decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(14)), child: const Icon(Icons.workspace_premium_rounded, color: C.gold, size: 18)),
+              ]),
+              const SizedBox(height: 10),
               Row(children: [
                 const Icon(Icons.star_rounded, color: C.gold),
                 Text(' ${r.rating}/5', style: const TextStyle(fontWeight: FontWeight.w900)),
@@ -787,7 +1061,7 @@ class _DetailPageState extends State<DetailPage> {
               OutlinedButton.icon(
                 onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ShoppingPage(store: widget.store, recipe: r))),
                 icon: const Icon(Icons.shopping_bag_outlined),
-                label: const Text('Liste de courses'),
+                label: const Text('Courses de la semaine'),
                 style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 17), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
               ),
             ]),
@@ -1024,72 +1298,210 @@ class ShoppingPage extends StatefulWidget {
 }
 
 class _ShoppingPageState extends State<ShoppingPage> {
-  String? selectedId;
-  @override
-  void initState() {
-    super.initState();
-    selectedId = widget.recipe?.id ?? (widget.store.recipes.isEmpty ? null : widget.store.recipes.first.id);
-  }
-
-  Recipe? get selected {
-    if (selectedId == null) return null;
-    return widget.store.byId(selectedId!) ?? (widget.store.recipes.isEmpty ? null : widget.store.recipes.first);
-  }
+  String filter = 'À acheter';
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: widget.store,
       builder: (_, __) {
-        final r = selected;
+        final all = widget.store.weeklyShoppingEntries();
+        final bought = all.where((e) => e.purchased).length;
+        final visible = filter == 'Tout' ? all : filter == 'Acheté' ? all.where((e) => e.purchased).toList() : all.where((e) => !e.purchased).toList();
+        final progress = all.isEmpty ? 0.0 : bought / all.length;
         return Scaffold(
-          appBar: AppBar(title: const Text('Liste de courses', style: TextStyle(fontWeight: FontWeight.w900))),
-          body: r == null
-              ? Center(child: premiumEmpty(Icons.shopping_basket_outlined, 'Aucune recette', 'Ajoute une recette avec ingrédients.'))
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
-                  children: [
-                    DropdownButtonFormField<String>(
-                      value: r.id,
-                      items: widget.store.recipes.map((e) => DropdownMenuItem(value: e.id, child: Text(e.title, overflow: TextOverflow.ellipsis))).toList(),
-                      onChanged: (v) => setState(() => selectedId = v),
-                      decoration: inputDecoration('Choisir une recette'),
+          appBar: AppBar(
+            title: const Text('Courses de la semaine', style: TextStyle(fontWeight: FontWeight.w900)),
+            actions: [
+              IconButton(
+                tooltip: 'Réinitialiser les achats',
+                onPressed: all.isEmpty ? null : () => _confirmReset(context),
+                icon: const Icon(Icons.restart_alt_rounded),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+            children: [
+              _shoppingHero(all.length, bought, progress),
+              const SizedBox(height: 14),
+              _reminderCard(),
+              const SizedBox(height: 16),
+              if (widget.recipe != null)
+                premiumNote(Icons.info_outline_rounded, 'Liste hebdomadaire', 'Cette version regroupe automatiquement tous les repas du planning. Ajoute ${widget.recipe!.title} à ta semaine pour inclure ses quantités.'),
+              if (all.isEmpty)
+                Container(
+                  decoration: soft(radius: 28),
+                  child: Column(children: [
+                    premiumEmpty(Icons.shopping_cart_checkout_rounded, 'Ta liste est vide', 'Planifie les repas de la semaine : les ingrédients et quantités apparaîtront ici automatiquement.'),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      child: FilledButton.icon(
+                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MealPlannerPage(store: widget.store))),
+                        icon: const Icon(Icons.calendar_month_rounded),
+                        label: const Text('Planifier ma semaine'),
+                        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
+                      ),
                     ),
-                    const SizedBox(height: 18),
-                    premiumNote(Icons.checklist_rounded, 'Coche ce que tu as déjà', 'La liste exportée contient seulement les ingrédients manquants.'),
-                    const SizedBox(height: 10),
-                    if (r.ingredients.isEmpty) premiumEmpty(Icons.no_food_rounded, 'Aucun ingrédient', 'Ajoute des ingrédients dans Modifier recette.'),
-                    ...r.ingredients.map((i) => Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          decoration: soft(radius: 22),
-                          child: CheckboxListTile(
-                            value: i.have,
-                            activeColor: C.green,
-                            title: Text(i.name, style: const TextStyle(fontWeight: FontWeight.w900)),
-                            subtitle: Text('${fmt(i.qty)} ${i.unit}'),
-                            onChanged: (v) async {
-                              setState(() => i.have = v ?? false);
-                              await widget.store.save();
-                            },
-                          ),
-                        )),
-                    Row(children: [
-                      Expanded(child: OutlinedButton.icon(onPressed: r.ingredients.isEmpty ? null : () { for (final i in r.ingredients) i.have = true; widget.store.save(); }, icon: const Icon(Icons.done_all_rounded), label: const Text('Tout cocher'))),
-                      const SizedBox(width: 10),
-                      Expanded(child: OutlinedButton.icon(onPressed: r.ingredients.isEmpty ? null : () { for (final i in r.ingredients) i.have = false; widget.store.save(); }, icon: const Icon(Icons.refresh_rounded), label: const Text('Réinitialiser'))),
-                    ]),
-                    const SizedBox(height: 10),
-                    FilledButton.icon(
-                      onPressed: r.ingredients.isEmpty ? null : () => exportMissing(context, r),
-                      icon: const Icon(Icons.ios_share_rounded),
-                      label: const Text('Exporter les ingrédients manquants'),
-                      style: mainButtonStyle(),
-                    ),
-                  ],
+                  ]),
+                )
+              else ...[
+                _filterChips(),
+                const SizedBox(height: 12),
+                ..._shoppingSections(visible),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: () => _copyWeeklyList(context, all.where((e) => !e.purchased).toList()),
+                  icon: const Icon(Icons.ios_share_rounded),
+                  label: const Text('Copier la liste restante'),
+                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
                 ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MealPlannerPage(store: widget.store))),
+                  icon: const Icon(Icons.edit_calendar_rounded),
+                  label: const Text('Modifier les repas / portions'),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(54), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                ),
+              ],
+            ],
+          ),
         );
       },
     );
+  }
+
+  Widget _shoppingHero(int total, int bought, double progress) => Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: C.greenDark,
+      borderRadius: BorderRadius.circular(30),
+      boxShadow: const [BoxShadow(color: Color(0x1F000000), blurRadius: 28, offset: Offset(0, 12))],
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(width: 48, height: 48, decoration: BoxDecoration(color: Colors.white.withOpacity(.10), borderRadius: BorderRadius.circular(16)), child: const Icon(Icons.shopping_basket_rounded, color: C.gold)),
+        const SizedBox(width: 12),
+        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Panier intelligent', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w900)),
+          Text('Quantités cumulées de toute la semaine', style: TextStyle(color: Color(0xFFD9E4DD), fontWeight: FontWeight.w700)),
+        ])),
+      ]),
+      const SizedBox(height: 18),
+      ClipRRect(borderRadius: BorderRadius.circular(99), child: LinearProgressIndicator(value: progress, minHeight: 10, color: C.gold, backgroundColor: Colors.white.withOpacity(.12))),
+      const SizedBox(height: 10),
+      Row(children: [
+        Text('$bought / $total produits achetés', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+        const Spacer(),
+        Text('${(progress * 100).round()}%', style: const TextStyle(color: C.gold, fontWeight: FontWeight.w900)),
+      ]),
+    ]),
+  );
+
+  Widget _reminderCard() => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(24), border: Border.all(color: C.line)),
+    child: Row(children: [
+      Container(width: 46, height: 46, decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(15)), child: const Icon(Icons.notifications_active_rounded, color: C.terracotta)),
+      const SizedBox(width: 12),
+      const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Rappel courses', style: TextStyle(fontWeight: FontWeight.w900)),
+        SizedBox(height: 3),
+        Text('Une notification hebdomadaire pour vérifier la liste.', style: TextStyle(color: C.muted, fontSize: 12.5, height: 1.3, fontWeight: FontWeight.w700)),
+      ])),
+      Switch(value: widget.store.weeklyShoppingReminder, onChanged: (v) async {
+        await widget.store.setWeeklyShoppingReminder(v);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(v ? 'Rappel hebdomadaire activé' : 'Rappel désactivé')));
+      }),
+    ]),
+  );
+
+  Widget _filterChips() => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(children: ['À acheter', 'Acheté', 'Tout'].map((x) => Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(label: Text(x), selected: filter == x, onSelected: (_) => setState(() => filter = x)),
+    )).toList()),
+  );
+
+  List<Widget> _shoppingSections(List<WeeklyShoppingEntry> items) {
+    final groups = <String, List<WeeklyShoppingEntry>>{};
+    for (final item in items) {
+      groups.putIfAbsent(_groceryCategory(item.name), () => <WeeklyShoppingEntry>[]).add(item);
+    }
+    final order = ['Fruits & légumes','Viandes & poisson','Produits frais','Épicerie','Boulangerie','Autres'];
+    final widgets = <Widget>[];
+    for (final category in order) {
+      final group = groups[category];
+      if (group == null || group.isEmpty) continue;
+      widgets.add(Padding(
+        padding: const EdgeInsets.fromLTRB(2, 8, 2, 9),
+        child: Row(children: [Icon(_groceryIcon(category), size: 19, color: C.green), const SizedBox(width: 8), Text(category, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: C.ink)), const Spacer(), Text('${group.length}', style: const TextStyle(color: C.muted, fontWeight: FontWeight.w800))]),
+      ));
+      widgets.addAll(group.map(_shoppingItem));
+    }
+    return widgets;
+  }
+
+  String _groceryCategory(String name) {
+    final n = name.toLowerCase();
+    if (['poulet','viande','saumon','crevette','moule','lardon','guanciale'].any(n.contains)) return 'Viandes & poisson';
+    if (['tomate','oignon','carotte','courgette','aubergine','poivron','citron','concombre','avocat','persil','coriandre','céleri','épinard','navet','potiron','ail','banane'].any(n.contains)) return 'Fruits & légumes';
+    if (['œuf','oeuf','lait','yaourt','fromage','feta','mozzarella','parmesan','crème','beurre','mascarpone'].any(n.contains)) return 'Produits frais';
+    if (['pain','tortilla','brick','pâte brisée'].any(n.contains)) return 'Boulangerie';
+    if (['riz','farine','sucre','lentille','pois chiche','haricot','pâte','spaghetti','penne','semoule','huile','épice','cumin','paprika','curry','cannelle','miel','café','cacao','chocolat','avoine','quinoa','nouille','sauce','maïs'].any(n.contains)) return 'Épicerie';
+    return 'Autres';
+  }
+
+  IconData _groceryIcon(String category) {
+    switch (category) {
+      case 'Fruits & légumes': return Icons.eco_rounded;
+      case 'Viandes & poisson': return Icons.set_meal_rounded;
+      case 'Produits frais': return Icons.egg_alt_rounded;
+      case 'Épicerie': return Icons.inventory_2_rounded;
+      case 'Boulangerie': return Icons.bakery_dining_rounded;
+      default: return Icons.shopping_bag_rounded;
+    }
+  }
+
+  Widget _shoppingItem(WeeklyShoppingEntry e) => Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    decoration: BoxDecoration(color: e.purchased ? C.green.withOpacity(.055) : C.card, borderRadius: BorderRadius.circular(23), border: Border.all(color: e.purchased ? C.green.withOpacity(.18) : C.line)),
+    child: CheckboxListTile(
+      value: e.purchased,
+      activeColor: C.green,
+      controlAffinity: ListTileControlAffinity.leading,
+      contentPadding: const EdgeInsets.fromLTRB(12, 5, 14, 5),
+      title: Text(e.name, style: TextStyle(fontWeight: FontWeight.w900, decoration: e.purchased ? TextDecoration.lineThrough : null, color: e.purchased ? C.muted : C.ink)),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text('${e.recipes.length} recette${e.recipes.length > 1 ? 's' : ''} · ${e.recipes.take(2).join(' + ')}${e.recipes.length > 2 ? '…' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontWeight: FontWeight.w700)),
+      ),
+      secondary: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+        decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(14)),
+        child: Text('${fmt(e.qty)} ${e.unit}', style: const TextStyle(color: C.greenDark, fontWeight: FontWeight.w900)),
+      ),
+      onChanged: (v) => widget.store.setWeeklyPurchased(e.key, v ?? false),
+    ),
+  );
+
+  Future<void> _confirmReset(BuildContext context) async {
+    final ok = await showDialog<bool>(context: context, builder: (_) => AlertDialog(
+      title: const Text('Nouvelle semaine ?'),
+      content: const Text('Tous les produits repasseront en “à acheter”. Le planning reste inchangé.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Réinitialiser'))],
+    ));
+    if (ok == true) await widget.store.resetWeeklyPurchased();
+  }
+
+  void _copyWeeklyList(BuildContext context, List<WeeklyShoppingEntry> items) {
+    final text = items.isEmpty
+        ? 'Courses de la semaine : tout est acheté ✅'
+        : 'Courses de la semaine\n\n${items.map((e) => '☐ ${e.name} — ${fmt(e.qty)} ${e.unit}').join('\n')}';
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Liste de courses copiée')));
   }
 }
 
@@ -1126,6 +1538,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
           field('Nom de la recette', r.title, (v) => r.title = v),
           DropdownButtonFormField<String>(value: widget.store.categories.contains(r.category) ? r.category : widget.store.categories.first, items: widget.store.categories.map((e)=>DropdownMenuItem(value:e, child: Text(e))).toList(), onChanged: (v)=>setState(()=>r.category=v??r.category), decoration: inputDecoration('Catégorie')),
           const SizedBox(height: 12),
+          field('Cuisine / origine', r.cuisine, (v) => r.cuisine = v.trim().isEmpty ? 'Maison' : v),
           Row(children: [
             Expanded(child: field('Temps', r.minutes.toString(), (v) => r.minutes = int.tryParse(v) ?? r.minutes, number: true)),
             const SizedBox(width: 10),
@@ -1299,8 +1712,360 @@ class _CategoriesPageState extends State<CategoriesPage>{
   void edit({String? old}){final c=TextEditingController(text:old??''); String icon=widget.store.categoryIcons[old]??categoryIconKey(old??'Autres'); final icons=['tagine','cake','dish','juice','bread','soup','salad','fish','meat','dessert','other']; showDialog(context:context,builder:(_)=>StatefulBuilder(builder:(context,setLocal)=>AlertDialog(title: Text(old==null?'Nouvelle catégorie':'Modifier catégorie'), content: Column(mainAxisSize:MainAxisSize.min, children:[TextField(controller:c, decoration: inputDecoration('Nom')), const SizedBox(height:10), DropdownButtonFormField<String>(value:icons.contains(icon)?icon:'other', items:icons.map((e)=>DropdownMenuItem(value:e, child:Row(children:[Icon(categoryIconFromKey(e), size:18), const SizedBox(width:8), Text(categoryIconLabel(e))]))).toList(), onChanged:(v)=>setLocal(()=>icon=v??icon), decoration: inputDecoration('Icône'))]), actions:[TextButton(onPressed:()=>Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed:(){final v=c.text.trim(); if(v.isNotEmpty){setState((){ if(old!=null){ final i=widget.store.categories.indexOf(old); if(i!=-1) widget.store.categories[i]=v; widget.store.categoryIcons.remove(old); for(final r in widget.store.recipes){ if(r.category==old) r.category=v; } } else if(!widget.store.categories.contains(v)){ widget.store.categories.add(v); } widget.store.categoryIcons[v]=icon; widget.store.save();});} Navigator.pop(context);}, child: const Text('Enregistrer'))] ))); }
   @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Catégories', style: TextStyle(fontWeight:FontWeight.w900))), floatingActionButton:FloatingActionButton.extended(onPressed:()=>edit(), icon: const Icon(Icons.add), label: const Text('Catégorie')), body:ReorderableListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), onReorder:(oldIndex,newIndex){setState((){if(newIndex>oldIndex)newIndex--; final item=widget.store.categories.removeAt(oldIndex); widget.store.categories.insert(newIndex,item); widget.store.save();});}, children:[for(final c in widget.store.categories) Container(key:ValueKey(c), margin: const EdgeInsets.only(bottom:10), decoration: soft(radius:22), child: ListTile(leading: Icon(categoryIconFromKey(widget.store.categoryIcons[c]??categoryIconKey(c)), color:C.green), title: Text(c, style: const TextStyle(fontWeight:FontWeight.w900)), subtitle: Text('${widget.store.recipes.where((r)=>r.category==c).length} recettes'), trailing: Wrap(children:[IconButton(icon: const Icon(Icons.edit_rounded), onPressed:()=>edit(old:c)), IconButton(icon: const Icon(Icons.delete_outline_rounded), onPressed: widget.store.categories.length<=1?null:(){setState((){widget.store.categories.remove(c); widget.store.categoryIcons.remove(c); widget.store.save();});})])) )]));}
 
-class MealPlannerPage extends StatefulWidget { final Store store; const MealPlannerPage({super.key, required this.store}); @override State<MealPlannerPage> createState()=>_MealPlannerPageState(); }
-class _MealPlannerPageState extends State<MealPlannerPage>{ final days=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche']; final meals=['Petit-déj','Déjeuner','Casse-croûte','Dîner']; @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title: const Text('Repas de la semaine', style: TextStyle(fontWeight:FontWeight.w900))), body:ListView(padding: const EdgeInsets.fromLTRB(20,0,20,110), children:[premiumNote(Icons.ac_unit_rounded,'Décongélation intelligente','Prévois les repas et note ce qu’il faut sortir du congélateur.'), for(final d in days) Container(margin: const EdgeInsets.only(bottom:12), padding: const EdgeInsets.all(14), decoration: soft(radius:24), child: Column(crossAxisAlignment:CrossAxisAlignment.start, children:[Text(d, style: const TextStyle(fontSize:18, fontWeight:FontWeight.w900)), for(final meal in meals) Padding(padding: const EdgeInsets.only(top:8), child: DropdownButtonFormField<String>(value: widget.store.mealPlan['$d-$meal'], items: [const DropdownMenuItem<String>(value:null, child:Text('Aucun')), ...widget.store.recipes.map((r)=>DropdownMenuItem(value:r.id, child:Text(r.title, overflow:TextOverflow.ellipsis)))], onChanged:(v){setState((){ if(v==null){widget.store.mealPlan.remove('$d-$meal');}else{widget.store.mealPlan['$d-$meal']=v;} widget.store.save();});}, decoration: inputDecoration(meal))), Builder(builder:(_){final ids=meals.map((m)=>widget.store.mealPlan['$d-$m']).whereType<String>(); final notes=ids.map((id)=>widget.store.byId(id)?.thawNote??'').where((e)=>e.isNotEmpty).toList(); return notes.isEmpty?const SizedBox.shrink():Padding(padding: const EdgeInsets.only(top:10), child: Text('À décongeler : ${notes.join(' • ')}', style: const TextStyle(color:C.terracotta, fontWeight:FontWeight.w800)));})]))])); }
+class MealPlannerPage extends StatefulWidget {
+  final Store store;
+  const MealPlannerPage({super.key, required this.store});
+  @override
+  State<MealPlannerPage> createState()=>_MealPlannerPageState();
+}
+
+class _MealPlannerPageState extends State<MealPlannerPage> {
+  final days = const ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+  final meals = const ['Petit-déj','Déjeuner','Casse-croûte','Dîner'];
+  String selectedDay = 'Lundi';
+
+  @override
+  Widget build(BuildContext context) {
+    final planned = widget.store.mealPlan.values.where((id) => id.isNotEmpty).length;
+    return AnimatedBuilder(
+      animation: widget.store,
+      builder: (_, __) => Scaffold(
+        appBar: AppBar(title: const Text('Ma semaine', style: TextStyle(fontWeight: FontWeight.w900))),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+          children: [
+            _plannerHero(planned),
+            const SizedBox(height: 16),
+            _daySelector(),
+            const SizedBox(height: 14),
+            _dayCard(selectedDay),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ShoppingPage(store: widget.store))),
+              icon: const Icon(Icons.shopping_basket_rounded),
+              label: const Text('Voir les courses calculées'),
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+            ),
+            const SizedBox(height: 12),
+            premiumNote(Icons.lightbulb_rounded, 'Quantités automatiques', 'Change le nombre de personnes pour chaque repas : les quantités de la liste de courses sont recalculées automatiquement.'),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RecipeLibraryPage(store: widget.store))),
+              icon: const Icon(Icons.auto_stories_rounded),
+              label: const Text('Trouver des idées dans la bibliothèque'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(54), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _plannerHero(int planned) => Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(color: C.ink, borderRadius: BorderRadius.circular(30)),
+    child: Row(children: [
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Planifier sans stress', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 7),
+        const Text('Choisis les repas, les portions et laisse l’app préparer les courses.', style: TextStyle(color: Color(0xFFE9E1D6), height: 1.35, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 14),
+        Container(padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7), decoration: BoxDecoration(color: Colors.white.withOpacity(.10), borderRadius: BorderRadius.circular(14)), child: Text('$planned repas planifié${planned > 1 ? 's' : ''}', style: const TextStyle(color: C.gold, fontWeight: FontWeight.w900))),
+      ])),
+      const SizedBox(width: 14),
+      Container(width: 66, height: 66, decoration: BoxDecoration(color: Colors.white.withOpacity(.10), borderRadius: BorderRadius.circular(22)), child: const Icon(Icons.calendar_month_rounded, color: C.gold, size: 32)),
+    ]),
+  );
+
+  Widget _daySelector() => SizedBox(
+    height: 52,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: days.length,
+      separatorBuilder: (_, __) => const SizedBox(width: 8),
+      itemBuilder: (_, i) {
+        final d = days[i];
+        final active = d == selectedDay;
+        return ChoiceChip(
+          label: Text(d.substring(0, 3)),
+          selected: active,
+          onSelected: (_) => setState(() => selectedDay = d),
+          avatar: active ? const Icon(Icons.check_rounded, size: 17) : null,
+        );
+      },
+    ),
+  );
+
+  Widget _dayCard(String day) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(28), border: Border.all(color: C.line), boxShadow: const [BoxShadow(color: Color(0x0D000000), blurRadius: 20, offset: Offset(0, 9))]),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(width: 42, height: 42, decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(14)), child: const Icon(Icons.restaurant_rounded, color: C.green)),
+        const SizedBox(width: 11),
+        Text(day, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+      ]),
+      const SizedBox(height: 10),
+      for (final meal in meals) _mealSlot(day, meal),
+      Builder(builder: (_) {
+        final ids = meals.map((m) => widget.store.mealPlan['$day-$m']).whereType<String>();
+        final notes = ids.map((id) => widget.store.byId(id)?.thawNote ?? '').where((e) => e.isNotEmpty).toList();
+        return notes.isEmpty ? const SizedBox.shrink() : Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: C.terracotta.withOpacity(.08), borderRadius: BorderRadius.circular(18)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.ac_unit_rounded, color: C.terracotta), const SizedBox(width: 8), Expanded(child: Text('À préparer : ${notes.join(' • ')}', style: const TextStyle(color: C.terracotta, fontWeight: FontWeight.w800, height: 1.3)))]),
+        );
+      }),
+    ]),
+  );
+
+  Widget _mealSlot(String day, String meal) {
+    final key = '$day-$meal';
+    final selectedId = widget.store.mealPlan[key];
+    final selectedRecipe = selectedId == null ? null : widget.store.byId(selectedId);
+    final servings = widget.store.mealServings[key] ?? selectedRecipe?.servings ?? 4;
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: C.cream, borderRadius: BorderRadius.circular(20), border: Border.all(color: C.line)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(meal, style: const TextStyle(color: C.muted, fontWeight: FontWeight.w900, fontSize: 12)),
+        const SizedBox(height: 7),
+        DropdownButtonFormField<String>(
+          value: selectedId,
+          isExpanded: true,
+          items: [const DropdownMenuItem<String>(value: null, child: Text('Aucun repas')), ...widget.store.recipes.map((r) => DropdownMenuItem(value: r.id, child: Text(r.title, overflow: TextOverflow.ellipsis)))],
+          onChanged: (v) {
+            if (v == null) {
+              widget.store.mealPlan.remove(key);
+              widget.store.mealServings.remove(key);
+            } else {
+              widget.store.mealPlan[key] = v;
+              final r = widget.store.byId(v);
+              widget.store.mealServings[key] = r?.servings ?? 4;
+            }
+            widget.store.save();
+          },
+          decoration: const InputDecoration(labelText: 'Recette', contentPadding: EdgeInsets.symmetric(horizontal: 13, vertical: 11)),
+        ),
+        if (selectedRecipe != null) ...[
+          const SizedBox(height: 9),
+          Row(children: [
+            const Icon(Icons.people_alt_rounded, size: 18, color: C.green),
+            const SizedBox(width: 7),
+            const Text('Personnes', style: TextStyle(fontWeight: FontWeight.w800)),
+            const Spacer(),
+            _roundIcon(Icons.remove_rounded, servings <= 1 ? null : () { widget.store.mealServings[key] = servings - 1; widget.store.save(); }),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Text('$servings', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900))),
+            _roundIcon(Icons.add_rounded, () { widget.store.mealServings[key] = servings + 1; widget.store.save(); }),
+          ]),
+        ],
+      ]),
+    );
+  }
+
+  Widget _roundIcon(IconData icon, VoidCallback? onTap) => IconButton.filledTonal(onPressed: onTap, icon: Icon(icon, size: 19), constraints: const BoxConstraints.tightFor(width: 38, height: 38), padding: EdgeInsets.zero);
+}
+
+class RecipeLibraryPage extends StatefulWidget {
+  final Store store;
+  const RecipeLibraryPage({super.key, required this.store});
+  @override
+  State<RecipeLibraryPage> createState() => _RecipeLibraryPageState();
+}
+
+class _RecipeLibraryPageState extends State<RecipeLibraryPage> {
+  String query = '';
+  String cuisine = 'Toutes';
+
+  @override
+  Widget build(BuildContext context) {
+    final catalog = builtInRecipeLibrary();
+    final cuisines = ['Toutes', ...{for (final r in catalog) r.cuisine}];
+    final filtered = catalog.where((r) {
+      final q = query.trim().toLowerCase();
+      final matchQ = q.isEmpty || r.title.toLowerCase().contains(q) || r.cuisine.toLowerCase().contains(q) || r.tags.any((t) => t.toLowerCase().contains(q)) || r.ingredients.any((i) => i.name.toLowerCase().contains(q));
+      return matchQ && (cuisine == 'Toutes' || r.cuisine == cuisine);
+    }).toList();
+    final imported = catalog.where(widget.store.isLibraryRecipeImported).length;
+    return AnimatedBuilder(
+      animation: widget.store,
+      builder: (_, __) => Scaffold(
+        appBar: AppBar(title: const Text('Bibliothèque recettes', style: TextStyle(fontWeight: FontWeight.w900))),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+          children: [
+            _libraryHero(catalog.length, imported),
+            const SizedBox(height: 16),
+            TextField(
+              onChanged: (v) => setState(() => query = v),
+              decoration: inputDecoration('Chercher plat, ingrédient ou cuisine').copyWith(prefixIcon: const Icon(Icons.search_rounded)),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 46,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: cuisines.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) {
+                  final x = cuisines[i];
+                  return ChoiceChip(label: Text(x), selected: cuisine == x, onSelected: (_) => setState(() => cuisine = x));
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(child: Text('${filtered.length} recettes', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
+              Text('$imported importée${imported > 1 ? 's' : ''}', style: const TextStyle(color: C.muted, fontWeight: FontWeight.w800)),
+            ]),
+            const SizedBox(height: 10),
+            ...filtered.map(_libraryCard),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _libraryHero(int count, int imported) => Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(colors: [C.greenDark, C.green], begin: Alignment.topLeft, end: Alignment.bottomRight),
+      borderRadius: BorderRadius.circular(30),
+      boxShadow: const [BoxShadow(color: Color(0x19000000), blurRadius: 28, offset: Offset(0, 12))],
+    ),
+    child: Row(children: [
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Row(children: [Icon(Icons.auto_stories_rounded, color: C.gold), SizedBox(width: 8), Text('Kitchen Library', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900))]),
+        const SizedBox(height: 9),
+        const Text('Des recettes complètes prêtes à importer dans ton carnet, avec ingrédients, quantités et étapes.', style: TextStyle(color: Color(0xFFE5EFE9), height: 1.4, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 13),
+        Text('$count recettes · $imported dans ton carnet', style: const TextStyle(color: C.gold, fontWeight: FontWeight.w900)),
+      ])),
+      const SizedBox(width: 12),
+      Container(width: 66, height: 66, decoration: BoxDecoration(color: Colors.white.withOpacity(.11), borderRadius: BorderRadius.circular(22)), child: const Icon(Icons.restaurant_menu_rounded, color: Colors.white, size: 32)),
+    ]),
+  );
+
+  Widget _libraryCard(Recipe r) {
+    final done = widget.store.isLibraryRecipeImported(r);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(26), border: Border.all(color: done ? C.green.withOpacity(.24) : C.line)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LibraryRecipePreviewPage(store: widget.store, recipe: r))),
+        child: Row(children: [
+          SizedBox(width: 112, height: 132, child: RecipeImage(recipe: r, radius: 0)),
+          Expanded(child: Padding(
+            padding: const EdgeInsets.all(13),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [miniPill(r.cuisine, Icons.public_rounded), const Spacer(), if (done) const Icon(Icons.check_circle_rounded, color: C.green, size: 20)]),
+              const SizedBox(height: 8),
+              Text(r.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, height: 1.2, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 7),
+              Text('${r.minutes} min · ${r.difficulty} · ${r.servings} pers.', style: const TextStyle(color: C.muted, fontSize: 12, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 9),
+              SizedBox(
+                height: 34,
+                child: done
+                    ? OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.done_rounded, size: 17), label: const Text('Déjà importée'))
+                    : FilledButton.icon(onPressed: () => _import(r), icon: const Icon(Icons.download_rounded, size: 17), label: const Text('Importer'), style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12))),
+              ),
+            ]),
+          )),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _import(Recipe r) async {
+    await widget.store.importLibraryRecipe(r);
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r.title} ajoutée à tes recettes ✅')));
+  }
+}
+
+class LibraryRecipePreviewPage extends StatelessWidget {
+  final Store store;
+  final Recipe recipe;
+  const LibraryRecipePreviewPage({super.key, required this.store, required this.recipe});
+
+  @override
+  Widget build(BuildContext context) {
+    final imported = store.isLibraryRecipeImported(recipe);
+    return Scaffold(
+      body: CustomScrollView(slivers: [
+        SliverAppBar(
+          expandedHeight: 285,
+          pinned: true,
+          backgroundColor: C.cream,
+          flexibleSpace: FlexibleSpaceBar(background: Padding(padding: const EdgeInsets.fromLTRB(16, 68, 16, 18), child: RecipeImage(recipe: recipe, radius: 32))),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 110),
+          sliver: SliverList.list(children: [
+            Wrap(spacing: 8, runSpacing: 8, children: [miniPill(recipe.cuisine, Icons.public_rounded), miniPill(recipe.category, Icons.category_rounded), miniPill('${recipe.minutes} min', Icons.schedule_rounded)]),
+            const SizedBox(height: 12),
+            Text(recipe.title, style: const TextStyle(fontSize: 28, height: 1.08, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 16),
+            Row(children: [infoTile(Icons.people_alt_rounded, '${recipe.servings} pers.'), infoTile(Icons.signal_cellular_alt_rounded, recipe.difficulty), infoTile(Icons.star_rounded, '${recipe.rating}/5')]),
+            const SizedBox(height: 20),
+            const Text('Ingrédients', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 10),
+            ...recipe.ingredients.map(ingredientRow),
+            const SizedBox(height: 16),
+            const Text('Préparation', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 10),
+            ...recipe.steps.asMap().entries.map((e) => stepRow(e.key, e.value)),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: imported ? null : () async { await store.importLibraryRecipe(recipe); if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Recette ajoutée au carnet ✅'))); },
+              icon: Icon(imported ? Icons.done_all_rounded : Icons.download_rounded),
+              label: Text(imported ? 'Déjà dans mes recettes' : 'Importer dans mes recettes'),
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+Ingredient _bi(String name, num qty, String unit) => Ingredient(name: name, qty: qty.toDouble(), unit: unit);
+CookStep _bs(String title, int minutes, {int temp = 0, String note = '', String type = 'Préparation'}) => CookStep(title: title, minutes: minutes, temp: temp, note: note, type: type);
+Recipe _br(String id, String title, String cuisine, String category, int minutes, int servings, List<Ingredient> ingredients, List<CookStep> steps, {String difficulty = 'Facile', int rating = 5, int temp = 0, List<String> tags = const []}) => Recipe(id: id, title: title, cuisine: cuisine, category: category, minutes: minutes, servings: servings, ingredients: ingredients, steps: steps, difficulty: difficulty, rating: rating, temp: temp, tags: tags);
+
+List<Recipe> builtInRecipeLibrary() => [
+  _br('lib_ma_tajine_kefta','Tajine de kefta aux œufs','Marocaine','Tajines',45,4,[ _bi('Viande hachée',500,'g'),_bi('Tomates',5,'pièces'),_bi('Oignon',1,'pièce'),_bi('Œufs',4,'pièces'),_bi('Persil',0.5,'bouquet'),_bi('Cumin',1,'cuillère'),_bi('Paprika',1,'cuillère'),_bi('Huile d’olive',2,'cuillères')],[ _bs('Préparer la sauce tomate avec oignon et épices',15,type:'Cuisson'),_bs('Former les boulettes de kefta et les ajouter',18,type:'Cuisson'),_bs('Casser les œufs sur le dessus et terminer à couvert',10,type:'Cuisson')],difficulty:'Facile',tags:['familial','tajine','viande']),
+  _br('lib_ma_harira','Harira marocaine','Marocaine','Soupes',75,6,[ _bi('Tomates',6,'pièces'),_bi('Pois chiches',200,'g'),_bi('Lentilles',150,'g'),_bi('Céleri',0.5,'bouquet'),_bi('Coriandre',0.5,'bouquet'),_bi('Viande',300,'g'),_bi('Vermicelles',80,'g'),_bi('Farine',60,'g')],[ _bs('Mixer tomates, céleri et herbes',10,type:'Mixer'),_bs('Cuire viande, pois chiches, lentilles et base tomate',45,type:'Cuisson'),_bs('Lier avec farine diluée puis ajouter vermicelles',15,type:'Cuisson')],difficulty:'Moyen',tags:['ramadan','soupe','tradition']),
+  _br('lib_ma_couscous','Couscous aux 7 légumes','Marocaine','Plats',110,6,[ _bi('Semoule couscous',750,'g'),_bi('Viande',700,'g'),_bi('Carottes',4,'pièces'),_bi('Courgettes',3,'pièces'),_bi('Navets',3,'pièces'),_bi('Potiron',500,'g'),_bi('Pois chiches',200,'g'),_bi('Oignons',2,'pièces')],[ _bs('Préparer le bouillon avec viande et oignons',25,type:'Cuisson'),_bs('Ajouter les légumes selon leur temps de cuisson',40,type:'Cuisson'),_bs('Cuire et égrainer la semoule à la vapeur',35,type:'Cuisson'),_bs('Dresser semoule, légumes et bouillon',10)],difficulty:'Moyen',tags:['dimanche','famille','tradition']),
+  _br('lib_ma_briouates','Briouates poulet amandes','Marocaine','Plats',60,6,[ _bi('Feuilles de brick',12,'pièces'),_bi('Poulet',500,'g'),_bi('Oignons',2,'pièces'),_bi('Amandes',120,'g'),_bi('Œufs',3,'pièces'),_bi('Cannelle',1,'cuillère'),_bi('Miel',2,'cuillères')],[ _bs('Cuire puis effilocher le poulet avec les oignons',25,type:'Cuisson'),_bs('Ajouter œufs et amandes concassées',8,type:'Cuisson'),_bs('Plier les briouates et dorer au four',20,temp:190,type:'Four')],difficulty:'Moyen',tags:['entrée','ramadan','brick']),
+  _br('lib_fr_quiche','Quiche lorraine','Française','Plats',50,6,[ _bi('Pâte brisée',1,'pièce'),_bi('Lardons',200,'g'),_bi('Œufs',3,'pièces'),_bi('Crème fraîche',250,'ml'),_bi('Lait',100,'ml'),_bi('Fromage râpé',100,'g')],[ _bs('Faire revenir les lardons',7,type:'Cuisson'),_bs('Mélanger œufs, crème et lait',5),_bs('Garnir la pâte et cuire au four',35,temp:180,type:'Four')],tags:['four','rapide','famille']),
+  _br('lib_fr_rat','Ratatouille provençale','Française','Plats',50,4,[ _bi('Aubergines',2,'pièces'),_bi('Courgettes',2,'pièces'),_bi('Poivrons',2,'pièces'),_bi('Tomates',4,'pièces'),_bi('Oignon',1,'pièce'),_bi('Huile d’olive',3,'cuillères')],[ _bs('Découper tous les légumes',12,type:'Couper'),_bs('Faire revenir oignon, aubergines et poivrons',15,type:'Cuisson'),_bs('Ajouter tomates et courgettes puis mijoter',20,type:'Cuisson')],tags:['légumes','végétarien','été']),
+  _br('lib_fr_crepes','Crêpes maison','Française','Desserts',30,6,[ _bi('Farine',250,'g'),_bi('Œufs',4,'pièces'),_bi('Lait',500,'ml'),_bi('Beurre',40,'g'),_bi('Sucre',30,'g')],[ _bs('Mélanger farine, œufs et lait progressivement',8),_bs('Laisser reposer la pâte',10,type:'Repos'),_bs('Cuire les crêpes une par une',12,type:'Cuisson')],tags:['goûter','enfants','facile']),
+  _br('lib_it_carbonara','Spaghetti carbonara','Italienne','Plats',25,4,[ _bi('Spaghetti',400,'g'),_bi('Guanciale ou lardons',180,'g'),_bi('Œufs',4,'pièces'),_bi('Parmesan',100,'g'),_bi('Poivre noir',1,'cuillère')],[ _bs('Cuire les pâtes al dente',10,type:'Cuisson'),_bs('Dorer le guanciale',7,type:'Cuisson'),_bs('Mélanger hors feu avec œufs, fromage et eau de cuisson',5)],tags:['pâtes','rapide','italie']),
+  _br('lib_it_lasagne','Lasagnes bolognaises','Italienne','Plats',90,6,[ _bi('Feuilles lasagnes',12,'pièces'),_bi('Viande hachée',600,'g'),_bi('Tomates concassées',800,'g'),_bi('Oignon',1,'pièce'),_bi('Béchamel',600,'ml'),_bi('Mozzarella',250,'g')],[ _bs('Préparer la sauce bolognaise',35,type:'Cuisson'),_bs('Monter les couches lasagne, sauce et béchamel',15),_bs('Cuire au four',35,temp:190,type:'Four')],difficulty:'Moyen',tags:['four','famille','pâtes']),
+  _br('lib_it_pesto','Penne au pesto','Italienne','Plats',20,4,[ _bi('Penne',400,'g'),_bi('Basilic',1,'bouquet'),_bi('Parmesan',80,'g'),_bi('Pignons',40,'g'),_bi('Huile d’olive',100,'ml'),_bi('Ail',1,'gousse')],[ _bs('Cuire les penne',11,type:'Cuisson'),_bs('Mixer basilic, parmesan, pignons, ail et huile',5,type:'Mixer'),_bs('Mélanger le pesto aux pâtes chaudes',2)],tags:['rapide','végétarien','pâtes']),
+  _br('lib_es_paella','Paella poulet et fruits de mer','Espagnole','Plats',60,6,[ _bi('Riz rond',500,'g'),_bi('Poulet',500,'g'),_bi('Crevettes',300,'g'),_bi('Moules',500,'g'),_bi('Poivron rouge',1,'pièce'),_bi('Petits pois',150,'g'),_bi('Bouillon',1.2,'L')],[ _bs('Dorer le poulet et le poivron',15,type:'Cuisson'),_bs('Ajouter riz et bouillon puis cuire sans remuer',25,type:'Cuisson'),_bs('Ajouter fruits de mer et petits pois',12,type:'Cuisson')],difficulty:'Moyen',tags:['riz','mer','convivial']),
+  _br('lib_es_tortilla','Tortilla espagnole','Espagnole','Plats',40,4,[ _bi('Pommes de terre',700,'g'),_bi('Œufs',6,'pièces'),_bi('Oignon',1,'pièce'),_bi('Huile d’olive',120,'ml')],[ _bs('Cuire doucement pommes de terre et oignon',22,type:'Cuisson'),_bs('Mélanger avec les œufs battus',4),_bs('Cuire la tortilla des deux côtés',10,type:'Cuisson')],tags:['œufs','économique','famille']),
+  _br('lib_as_padthai','Pad thaï poulet','Thaïlandaise','Plats',30,4,[ _bi('Nouilles de riz',350,'g'),_bi('Poulet',350,'g'),_bi('Œufs',2,'pièces'),_bi('Pousses de soja',150,'g'),_bi('Cacahuètes',60,'g'),_bi('Sauce soja',3,'cuillères'),_bi('Citron vert',2,'pièces')],[ _bs('Réhydrater les nouilles et préparer les ingrédients',8),_bs('Saisir poulet puis œufs',8,type:'Cuisson'),_bs('Ajouter nouilles, sauce et pousses de soja',8,type:'Cuisson'),_bs('Servir avec cacahuètes et citron vert',3)],tags:['wok','nouilles','rapide']),
+  _br('lib_as_friedrice','Riz sauté aux légumes','Asiatique','Plats',25,4,[ _bi('Riz cuit',600,'g'),_bi('Œufs',3,'pièces'),_bi('Carotte',1,'pièce'),_bi('Petits pois',150,'g'),_bi('Oignons verts',3,'pièces'),_bi('Sauce soja',3,'cuillères')],[ _bs('Préparer les légumes et battre les œufs',6,type:'Couper'),_bs('Cuire les œufs puis les légumes au wok',7,type:'Cuisson'),_bs('Ajouter le riz froid et la sauce soja',8,type:'Cuisson')],tags:['anti-gaspi','riz','rapide']),
+  _br('lib_jp_teriyaki','Poulet teriyaki','Japonaise','Plats',30,4,[ _bi('Poulet',600,'g'),_bi('Sauce soja',60,'ml'),_bi('Miel',2,'cuillères'),_bi('Gingembre',1,'cuillère'),_bi('Ail',2,'gousses'),_bi('Riz',300,'g')],[ _bs('Cuire le riz',15,type:'Cuisson'),_bs('Saisir le poulet',8,type:'Cuisson'),_bs('Ajouter sauce soja, miel, gingembre et ail puis glacer',6,type:'Cuisson')],tags:['poulet','riz','sucré-salé']),
+  _br('lib_in_dhal','Dhal de lentilles corail','Indienne','Plats',35,4,[ _bi('Lentilles corail',300,'g'),_bi('Tomates concassées',400,'g'),_bi('Lait de coco',300,'ml'),_bi('Oignon',1,'pièce'),_bi('Curry',2,'cuillères'),_bi('Épinards',150,'g')],[ _bs('Faire revenir oignon et épices',7,type:'Cuisson'),_bs('Ajouter lentilles, tomates et lait de coco',22,type:'Cuisson'),_bs('Incorporer les épinards',4,type:'Cuisson')],tags:['végétarien','lentilles','batch cooking']),
+  _br('lib_in_tikka','Poulet tikka masala','Indienne','Plats',55,4,[ _bi('Poulet',600,'g'),_bi('Yaourt nature',150,'g'),_bi('Tomates concassées',500,'g'),_bi('Crème',120,'ml'),_bi('Oignon',1,'pièce'),_bi('Garam masala',2,'cuillères'),_bi('Riz basmati',300,'g')],[ _bs('Mariner le poulet au yaourt et épices',15,type:'Mariner'),_bs('Dorer le poulet',10,type:'Cuisson'),_bs('Préparer la sauce tomate épicée puis ajouter crème et poulet',20,type:'Cuisson')],difficulty:'Moyen',tags:['poulet','épices','riz']),
+  _br('lib_mx_fajitas','Fajitas de poulet','Mexicaine','Plats',30,4,[ _bi('Tortillas',8,'pièces'),_bi('Poulet',500,'g'),_bi('Poivrons',3,'pièces'),_bi('Oignon',1,'pièce'),_bi('Avocat',2,'pièces'),_bi('Citron vert',1,'pièce')],[ _bs('Émincer poulet, poivrons et oignon',8,type:'Couper'),_bs('Saisir le tout avec les épices',12,type:'Cuisson'),_bs('Réchauffer les tortillas et garnir',6,type:'Cuisson')],tags:['rapide','famille','à partager']),
+  _br('lib_mx_chili','Chili con carne','Mexicaine','Plats',50,6,[ _bi('Viande hachée',600,'g'),_bi('Haricots rouges',500,'g'),_bi('Tomates concassées',800,'g'),_bi('Maïs',200,'g'),_bi('Oignons',2,'pièces'),_bi('Cumin',2,'cuillères')],[ _bs('Faire revenir viande et oignons',12,type:'Cuisson'),_bs('Ajouter tomates, haricots, maïs et épices',30,type:'Cuisson'),_bs('Rectifier l’assaisonnement et servir',3)],tags:['batch cooking','familial','économique']),
+  _br('lib_gr_salad','Salade grecque','Grecque','Salades',15,4,[ _bi('Tomates',4,'pièces'),_bi('Concombre',1,'pièce'),_bi('Feta',200,'g'),_bi('Olives noires',100,'g'),_bi('Oignon rouge',1,'pièce'),_bi('Huile d’olive',3,'cuillères')],[ _bs('Couper tomates, concombre et oignon',8,type:'Couper'),_bs('Ajouter feta, olives et huile d’olive',4)],tags:['frais','été','végétarien']),
+  _br('lib_med_salmon','Saumon citron au four','Méditerranéenne','Plats',35,4,[ _bi('Pavés de saumon',4,'pièces'),_bi('Citron',2,'pièces'),_bi('Pommes de terre',700,'g'),_bi('Courgettes',2,'pièces'),_bi('Huile d’olive',3,'cuillères')],[ _bs('Découper et assaisonner les légumes',8,type:'Couper'),_bs('Précuire pommes de terre et courgettes',12,temp:200,type:'Four'),_bs('Ajouter saumon et citron puis terminer la cuisson',12,temp:200,type:'Four')],tags:['poisson','four','healthy']),
+  _br('lib_healthy_bowl','Bowl poulet quinoa avocat','Healthy','Salades',30,4,[ _bi('Quinoa',250,'g'),_bi('Poulet',450,'g'),_bi('Avocats',2,'pièces'),_bi('Tomates cerises',250,'g'),_bi('Concombre',1,'pièce'),_bi('Yaourt nature',120,'g')],[ _bs('Cuire le quinoa',15,type:'Cuisson'),_bs('Griller le poulet',10,type:'Cuisson'),_bs('Assembler les légumes, quinoa, poulet et sauce yaourt',5)],tags:['protéiné','meal prep','healthy']),
+  _br('lib_breakfast_oats','Overnight oats banane','Petit-déjeuner','Petit-déj',8,2,[ _bi('Flocons d’avoine',120,'g'),_bi('Lait',250,'ml'),_bi('Yaourt',120,'g'),_bi('Banane',1,'pièce'),_bi('Graines de chia',2,'cuillères')],[ _bs('Mélanger avoine, lait, yaourt et chia',4),_bs('Réfrigérer toute la nuit',1,type:'Repos'),_bs('Ajouter la banane avant de servir',3)],tags:['matin','sans cuisson','meal prep']),
+  _br('lib_breakfast_omelette','Omelette légumes fromage','Petit-déjeuner','Petit-déj',15,2,[ _bi('Œufs',4,'pièces'),_bi('Poivron',0.5,'pièce'),_bi('Tomate',1,'pièce'),_bi('Fromage râpé',60,'g'),_bi('Persil',0.25,'bouquet')],[ _bs('Couper les légumes',4,type:'Couper'),_bs('Battre les œufs et ajouter les légumes',3),_bs('Cuire l’omelette puis ajouter le fromage',7,type:'Cuisson')],tags:['matin','protéiné','rapide']),
+  _br('lib_dess_tiramisu','Tiramisu classique','Italienne','Desserts',30,8,[ _bi('Mascarpone',500,'g'),_bi('Œufs',4,'pièces'),_bi('Sucre',100,'g'),_bi('Biscuits cuillère',250,'g'),_bi('Café',300,'ml'),_bi('Cacao',20,'g')],[ _bs('Préparer la crème mascarpone',12),_bs('Tremper rapidement les biscuits dans le café',5),_bs('Monter les couches et saupoudrer de cacao',8),_bs('Réfrigérer au moins 4 heures',1,type:'Repos')],difficulty:'Moyen',tags:['dessert','café','sans four']),
+  _br('lib_dess_brownie','Brownie chocolat','Américaine','Desserts',40,8,[ _bi('Chocolat noir',200,'g'),_bi('Beurre',150,'g'),_bi('Sucre',180,'g'),_bi('Œufs',3,'pièces'),_bi('Farine',90,'g'),_bi('Noix',80,'g')],[ _bs('Faire fondre chocolat et beurre',5,type:'Cuisson'),_bs('Incorporer sucre, œufs, farine et noix',8),_bs('Cuire au four',24,temp:175,type:'Four')],tags:['chocolat','goûter','four']),
+  _br('lib_turk_lentil','Soupe de lentilles turque','Turque','Soupes',40,5,[ _bi('Lentilles corail',300,'g'),_bi('Carotte',1,'pièce'),_bi('Pomme de terre',1,'pièce'),_bi('Oignon',1,'pièce'),_bi('Concentré de tomate',1,'cuillère'),_bi('Bouillon',1,'L')],[ _bs('Faire revenir oignon et légumes',8,type:'Cuisson'),_bs('Ajouter lentilles et bouillon puis cuire',25,type:'Cuisson'),_bs('Mixer finement et rectifier l’assaisonnement',5,type:'Mixer')],tags:['soupe','économique','lentilles']),
+  _br('lib_leban_hummus','Houmous maison','Libanaise','Entrées',15,6,[ _bi('Pois chiches cuits',500,'g'),_bi('Tahini',80,'g'),_bi('Citron',2,'pièces'),_bi('Ail',1,'gousse'),_bi('Huile d’olive',3,'cuillères')],[ _bs('Mixer pois chiches, tahini, citron et ail',8,type:'Mixer'),_bs('Ajuster la texture avec un peu d’eau puis servir avec huile',4)],tags:['végétarien','apéritif','rapide']),
+  _br('lib_us_pancakes','Pancakes moelleux','Américaine','Petit-déj',25,4,[ _bi('Farine',250,'g'),_bi('Lait',300,'ml'),_bi('Œufs',2,'pièces'),_bi('Sucre',30,'g'),_bi('Levure chimique',10,'g'),_bi('Beurre',30,'g')],[ _bs('Mélanger les ingrédients secs puis liquides',7),_bs('Laisser reposer la pâte',5,type:'Repos'),_bs('Cuire les pancakes à la poêle',12,type:'Cuisson')],tags:['brunch','enfants','goûter']),
+];
 
 class FavoritesPage extends StatelessWidget {
   final Store store;
@@ -1330,8 +2095,11 @@ class MorePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Plus', style: TextStyle(fontWeight: FontWeight.w800))),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
-        premiumNote(Icons.auto_awesome_rounded, 'Smart Kitchen V10', 'Planifie, adapte les portions et cuisine à l’heure exacte avec un assistant centralisé.'),
+        premiumNote(Icons.workspace_premium_rounded, 'Kitchen Assistant V11', 'Planning familial, courses automatiques, bibliothèque multi-cuisines et cuisson guidée dans une expérience simple.'),
         quickAction(context, Icons.auto_awesome_rounded, 'Smart Kitchen', 'Portions, timeline, recettes faisables et lancement cuisson', SmartKitchenPage(store: store)),
+        quickAction(context, Icons.menu_book_rounded, 'Bibliothèque recettes', 'Recettes multi-cuisines prêtes à importer', RecipeLibraryPage(store: store)),
+        quickAction(context, Icons.favorite_rounded, 'Favoris', 'Tes recettes préférées', FavoritesPage(store: store)),
+        quickAction(context, Icons.shopping_basket_rounded, 'Courses de la semaine', 'Quantités cumulées + suivi des achats', ShoppingPage(store: store)),
         quickAction(context, Icons.insights_rounded, 'Dashboard', 'Statistiques et suivi cuisine', StatsPage(store: store)),
         quickAction(context, Icons.calendar_month_rounded, 'Repas de la semaine', 'Planning + rappels décongélation', MealPlannerPage(store: store)),
         quickAction(context, Icons.timer_rounded, 'Multi-compteurs', 'Plusieurs timers en même temps', MultiTimerPage(store: store)),
@@ -1359,7 +2127,7 @@ class _SmartKitchenPageState extends State<SmartKitchenPage> {
     final recipes = widget.store.recipes.where((r) => r.title.toLowerCase().contains(query.toLowerCase())).toList();
     final ready = [...recipes]..sort((a,b) => pantryScore(b).compareTo(pantryScore(a)));
     return Scaffold(
-      appBar: AppBar(title: const Text('Smart Kitchen V10', style: TextStyle(fontWeight: FontWeight.w900))),
+      appBar: AppBar(title: const Text('Smart Kitchen V11', style: TextStyle(fontWeight: FontWeight.w900))),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
         children: [
@@ -1852,8 +2620,8 @@ LinearGradient foodGradient(String c) {
   return const LinearGradient(colors: [Color(0xFF6D8069), Color(0xFFCDA27B)]);
 }
 
-BoxDecoration soft({double radius = 24}) => BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(radius), boxShadow: shadow());
-List<BoxShadow> shadow() => [BoxShadow(color: Colors.black.withOpacity(.045), blurRadius: 24, offset: const Offset(0, 12))];
+BoxDecoration soft({double radius = 24}) => BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(radius), border: Border.all(color: C.line), boxShadow: shadow());
+List<BoxShadow> shadow() => [BoxShadow(color: Colors.black.withOpacity(.035), blurRadius: 24, offset: const Offset(0, 10))];
 
 Widget miniPill(String text, IconData icon) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
