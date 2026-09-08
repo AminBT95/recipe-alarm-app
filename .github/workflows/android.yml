@@ -106,5 +106,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: recette-alarm-premium-apk
+          name: recette-alarm-smart-kitchen-v10-apk
           path: build/app/outputs/flutter-apk/app-debug.apk

@@ -764,6 +764,13 @@ class _DetailPageState extends State<DetailPage> {
                   )),
               const SizedBox(height: 10),
               FilledButton.icon(
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RecipeSmartKitchenPage(store: widget.store, recipe: r))),
+                icon: const Icon(Icons.auto_awesome_rounded),
+                label: const Text('Smart Kitchen · portions & timeline'),
+                style: FilledButton.styleFrom(backgroundColor: C.terracotta, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 17), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
+              ),
+              const SizedBox(height: 10),
+              FilledButton.icon(
                 onPressed: r.steps.isEmpty ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => CookingPage(recipe: r, store: widget.store))),
                 icon: const Icon(Icons.local_fire_department_rounded),
                 label: const Text('Cuisson guidée étape par étape'),
@@ -1323,7 +1330,8 @@ class MorePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Plus', style: TextStyle(fontWeight: FontWeight.w800))),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
-        premiumNote(Icons.card_giftcard_rounded, 'Cadeau premium', 'Recettes, alarmes, courses, conversions et sauvegarde dans une seule app.'),
+        premiumNote(Icons.auto_awesome_rounded, 'Smart Kitchen V10', 'Planifie, adapte les portions et cuisine à l’heure exacte avec un assistant centralisé.'),
+        quickAction(context, Icons.auto_awesome_rounded, 'Smart Kitchen', 'Portions, timeline, recettes faisables et lancement cuisson', SmartKitchenPage(store: store)),
         quickAction(context, Icons.insights_rounded, 'Dashboard', 'Statistiques et suivi cuisine', StatsPage(store: store)),
         quickAction(context, Icons.calendar_month_rounded, 'Repas de la semaine', 'Planning + rappels décongélation', MealPlannerPage(store: store)),
         quickAction(context, Icons.timer_rounded, 'Multi-compteurs', 'Plusieurs timers en même temps', MultiTimerPage(store: store)),
@@ -1334,6 +1342,157 @@ class MorePage extends StatelessWidget {
       ]),
     );
   }
+}
+
+
+class SmartKitchenPage extends StatefulWidget {
+  final Store store;
+  const SmartKitchenPage({super.key, required this.store});
+  @override
+  State<SmartKitchenPage> createState() => _SmartKitchenPageState();
+}
+
+class _SmartKitchenPageState extends State<SmartKitchenPage> {
+  String query = '';
+  @override
+  Widget build(BuildContext context) {
+    final recipes = widget.store.recipes.where((r) => r.title.toLowerCase().contains(query.toLowerCase())).toList();
+    final ready = [...recipes]..sort((a,b) => pantryScore(b).compareTo(pantryScore(a)));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Smart Kitchen V10', style: TextStyle(fontWeight: FontWeight.w900))),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(color: C.ink, borderRadius: BorderRadius.circular(30)),
+            child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children:[Icon(Icons.auto_awesome_rounded,color:C.gold),SizedBox(width:10),Text('Assistant cuisine',style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900))]),
+              SizedBox(height:10),
+              Text('Choisis une recette, adapte les portions, fixe l’heure de service et suis une timeline calculée automatiquement.', style: TextStyle(color: Color(0xFFF3EBDD), height: 1.4, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          TextField(onChanged:(v)=>setState(()=>query=v), decoration: inputDecoration('Rechercher une recette').copyWith(prefixIcon: const Icon(Icons.search_rounded))),
+          const SizedBox(height: 16),
+          premiumNote(Icons.kitchen_rounded, 'Recettes faisables maintenant', 'Le score utilise les ingrédients marqués comme déjà disponibles dans ta cuisine.'),
+          ...ready.map((r) {
+            final score = pantryScore(r);
+            final missing = r.ingredients.where((i)=>!i.have).length;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(14),
+              decoration: soft(radius:24),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap:()=>Navigator.push(context, MaterialPageRoute(builder:(_)=>RecipeSmartKitchenPage(store:widget.store,recipe:r))),
+                child: Row(children:[
+                  Container(width:54,height:54,decoration:BoxDecoration(color:C.green.withOpacity(.10),borderRadius:BorderRadius.circular(18)),child:Center(child:Text('${(score*100).round()}%',style:const TextStyle(fontWeight:FontWeight.w900,color:C.green)))),
+                  const SizedBox(width:12),
+                  Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(r.title,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:16)),Text(missing==0?'Tout est disponible':'$missing ingrédient(s) manquant(s)',style:TextStyle(color:missing==0?C.green:C.terracotta,fontWeight:FontWeight.w700))])),
+                  const Icon(Icons.chevron_right_rounded),
+                ]),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+  double pantryScore(Recipe r) {
+    if (r.ingredients.isEmpty) return 0;
+    return r.ingredients.where((i)=>i.have).length / r.ingredients.length;
+  }
+}
+
+class RecipeSmartKitchenPage extends StatefulWidget {
+  final Store store;
+  final Recipe recipe;
+  const RecipeSmartKitchenPage({super.key, required this.store, required this.recipe});
+  @override
+  State<RecipeSmartKitchenPage> createState() => _RecipeSmartKitchenPageState();
+}
+
+class _RecipeSmartKitchenPageState extends State<RecipeSmartKitchenPage> {
+  late int servings;
+  late TimeOfDay serveAt;
+  @override
+  void initState(){
+    super.initState();
+    servings = widget.recipe.servings <= 0 ? 1 : widget.recipe.servings;
+    final now=DateTime.now().add(Duration(minutes: widget.recipe.minutes + 30));
+    serveAt=TimeOfDay(hour:now.hour,minute:now.minute);
+  }
+  double get factor => servings / (widget.recipe.servings <= 0 ? 1 : widget.recipe.servings);
+  Future<void> chooseTime() async {
+    final t=await showTimePicker(context:context,initialTime:serveAt);
+    if(t!=null)setState(()=>serveAt=t);
+  }
+  DateTime targetDateTime(){
+    final now=DateTime.now();
+    var target=DateTime(now.year,now.month,now.day,serveAt.hour,serveAt.minute);
+    if(target.isBefore(now)) target=target.add(const Duration(days:1));
+    return target;
+  }
+  List<_KitchenTimelineItem> timeline(){
+    final steps=widget.recipe.steps;
+    var cursor=targetDateTime();
+    final out=<_KitchenTimelineItem>[];
+    for(final st in steps.reversed){
+      final duration=Duration(seconds:st.totalSeconds);
+      final start=cursor.subtract(duration);
+      out.add(_KitchenTimelineItem(step:st,start:start,end:cursor));
+      cursor=start;
+    }
+    return out.reversed.toList();
+  }
+  String clock(DateTime d)=>'${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+  @override
+  Widget build(BuildContext context){
+    final r=widget.recipe;
+    final items=timeline();
+    final start=items.isEmpty?targetDateTime():items.first.start;
+    final now=DateTime.now();
+    final until=start.difference(now);
+    return Scaffold(
+      appBar:AppBar(title:Text(r.title,style:const TextStyle(fontWeight:FontWeight.w900))),
+      body:ListView(padding:const EdgeInsets.fromLTRB(20,0,20,110),children:[
+        Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:C.ink,borderRadius:BorderRadius.circular(30)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          const Text('SMART KITCHEN',style:TextStyle(color:C.gold,fontWeight:FontWeight.w900,letterSpacing:1.2)),
+          const SizedBox(height:8),
+          Text('Prêt à ${serveAt.format(context)}',style:const TextStyle(color:Colors.white,fontSize:28,fontWeight:FontWeight.w900)),
+          const SizedBox(height:6),
+          Text(until.inMinutes>0?'Commence dans environ ${until.inMinutes} min':'Tu peux commencer maintenant',style:const TextStyle(color:Color(0xFFF1E8D9),fontWeight:FontWeight.w700)),
+        ])),
+        const SizedBox(height:16),
+        Row(children:[
+          Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:soft(radius:22),child:Column(children:[const Text('PORTIONS',style:TextStyle(color:C.muted,fontWeight:FontWeight.w800)),const SizedBox(height:8),Row(mainAxisAlignment:MainAxisAlignment.center,children:[IconButton.filledTonal(onPressed:servings<=1?null:()=>setState(()=>servings--),icon:const Icon(Icons.remove)),Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:Text('$servings',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w900))),IconButton.filledTonal(onPressed:()=>setState(()=>servings++),icon:const Icon(Icons.add))])]))),
+          const SizedBox(width:10),
+          Expanded(child:InkWell(onTap:chooseTime,borderRadius:BorderRadius.circular(22),child:Container(padding:const EdgeInsets.all(14),decoration:soft(radius:22),child:Column(children:[const Text('SERVICE',style:TextStyle(color:C.muted,fontWeight:FontWeight.w800)),const SizedBox(height:12),Text(serveAt.format(context),style:const TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const Text('modifier',style:TextStyle(color:C.green,fontWeight:FontWeight.w700))])))),
+        ]),
+        const SizedBox(height:18),
+        Text('Ingrédients pour $servings personne(s)',style:const TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
+        const SizedBox(height:10),
+        ...r.ingredients.map((i)=>Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.symmetric(horizontal:14,vertical:12),decoration:soft(radius:18),child:Row(children:[Icon(i.have?Icons.check_circle_rounded:Icons.circle_outlined,color:i.have?C.green:C.muted),const SizedBox(width:10),Expanded(child:Text(i.name,style:const TextStyle(fontWeight:FontWeight.w800))),Text('${fmt(i.qty*factor)} ${i.unit}',style:const TextStyle(fontWeight:FontWeight.w900,color:C.terracotta))]))),
+        const SizedBox(height:18),
+        Row(children:[const Expanded(child:Text('Timeline calculée',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900))),Text('Prêt ${serveAt.format(context)}',style:const TextStyle(color:C.green,fontWeight:FontWeight.w800))]),
+        const SizedBox(height:10),
+        if(items.isEmpty) premiumNote(Icons.info_outline_rounded,'Aucune étape','Ajoute des étapes de préparation pour générer la timeline.'),
+        ...items.asMap().entries.map((e){ final it=e.value; return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:soft(radius:20),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:62,padding:const EdgeInsets.symmetric(vertical:8),decoration:BoxDecoration(color:C.green.withOpacity(.10),borderRadius:BorderRadius.circular(14)),child:Text(clock(it.start),textAlign:TextAlign.center,style:const TextStyle(fontWeight:FontWeight.w900,color:C.green))),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${e.key+1}. ${it.step.title}',style:const TextStyle(fontWeight:FontWeight.w900)),const SizedBox(height:4),Text('${it.step.minutes} min${it.step.temp>0?' · ${it.step.temp}°C':''}${it.step.type.isNotEmpty?' · ${it.step.type}':''}',style:const TextStyle(color:C.muted,fontWeight:FontWeight.w700)),if(it.step.note.isNotEmpty)Padding(padding:const EdgeInsets.only(top:5),child:Text(it.step.note,style:const TextStyle(color:C.terracotta,fontWeight:FontWeight.w700)))]))]));}),
+        const SizedBox(height:10),
+        FilledButton.icon(onPressed:r.steps.isEmpty?null:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>CookingPage(recipe:r,store:widget.store))),icon:const Icon(Icons.local_fire_department_rounded),label:const Text('Lancer la cuisson guidée'),style:mainButtonStyle()),
+        const SizedBox(height:10),
+        OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>ShoppingPage(store:widget.store,recipe:r))),icon:const Icon(Icons.shopping_bag_outlined),label:const Text('Voir les ingrédients manquants'),style:OutlinedButton.styleFrom(padding:const EdgeInsets.symmetric(vertical:16),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(20)))),
+      ]),
+    );
+  }
+}
+
+class _KitchenTimelineItem {
+  final CookStep step;
+  final DateTime start;
+  final DateTime end;
+  const _KitchenTimelineItem({required this.step,required this.start,required this.end});
 }
 
 class ConverterPage extends StatefulWidget {
