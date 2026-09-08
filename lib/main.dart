@@ -27,7 +27,7 @@ Future<void> main() async {
   tzdata.initializeTimeZones();
   try {
     final zone = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(zone.identifier));
+    tz.setLocalLocation(tz.getLocation(zone));
   } catch (_) {}
   runApp(const RecetteAlarmApp());
 }
