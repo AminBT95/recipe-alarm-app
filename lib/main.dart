@@ -94,24 +94,44 @@ class PantryProduct {
   );
 }
 
-List<DateTime> extractExpiryDates(String text) {
+String _normalizeOcrDigits(String value) {
+  const arabic = '٠١٢٣٤٥٦٧٨٩';
+  const persian = '۰۱۲۳۴۵۶۷۸۹';
+  var out = value;
+  for (var i=0;i<10;i++) {
+    out = out.replaceAll(arabic[i], '$i').replaceAll(persian[i], '$i');
+  }
+  return out;
+}
+
+List<DateTime> extractExpiryDates(String rawText) {
+  final text = _normalizeOcrDigits(rawText).replaceAll('\n', ' ');
   final out=<DateTime>[];
   final seen=<String>{};
+  final now=DateTime.now();
   void add(int y,int m,int d){
     if(y<100) y += y < 70 ? 2000 : 1900;
     try {
       final dt=DateTime(y,m,d);
-      if(dt.year==y && dt.month==m && dt.day==d && y>=DateTime.now().year-1 && y<=DateTime.now().year+12){
+      if(dt.year==y && dt.month==m && dt.day==d && y>=now.year-2 && y<=now.year+15){
         final k='${dt.year}-${dt.month}-${dt.day}';
         if(seen.add(k)) out.add(dt);
       }
     } catch(_){}
   }
-  for(final m in RegExp(r'\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b').allMatches(text)){
+  for(final m in RegExp(r'\b(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{2,4})\b').allMatches(text)){
     add(int.parse(m.group(3)!),int.parse(m.group(2)!),int.parse(m.group(1)!));
   }
-  for(final m in RegExp(r'\b(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b').allMatches(text)){
+  for(final m in RegExp(r'\b(20\d{2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\b').allMatches(text)){
     add(int.parse(m.group(1)!),int.parse(m.group(2)!),int.parse(m.group(3)!));
+  }
+  // Dates compactes souvent imprimées: DDMMYY / DDMMYYYY
+  for(final m in RegExp(r'\b([0-3]\d)([0-1]\d)(20\d{2}|\d{2})\b').allMatches(text)){
+    add(int.parse(m.group(3)!),int.parse(m.group(2)!),int.parse(m.group(1)!));
+  }
+  // EXP 09/2026 ou DDM 09-26 : on prend le dernier jour du mois.
+  for(final m in RegExp(r'(?:exp|expiry|dlc|ddm|best\s*before|à\s*consommer)[^0-9]{0,14}(0?[1-9]|1[0-2])[\/\-.](20\d{2}|\d{2})', caseSensitive:false).allMatches(text)){
+    var y=int.parse(m.group(2)!); if(y<100)y+=2000; final mo=int.parse(m.group(1)!); add(y,mo,DateTime(y,mo+1,0).day);
   }
   final months={
     'jan':1,'janv':1,'janvier':1,'feb':2,'fev':2,'févr':2,'fevrier':2,'février':2,
@@ -122,8 +142,7 @@ List<DateTime> extractExpiryDates(String text) {
   final lower=text.toLowerCase();
   final mr=RegExp(r'\b(\d{1,2})\s+(jan(?:v(?:ier)?)?|f[eé]v(?:r(?:ier)?)?|mars?|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[eé]c(?:embre)?)\s+(\d{2,4})\b');
   for(final m in mr.allMatches(lower)){
-    final raw=m.group(2)!;
-    int? month;
+    final raw=m.group(2)!; int? month;
     for(final e in months.entries){ if(raw.startsWith(e.key)){month=e.value;break;} }
     if(month!=null) add(int.parse(m.group(3)!),month,int.parse(m.group(1)!));
   }
@@ -506,26 +525,25 @@ class Store extends ChangeNotifier {
         final existing = grouped[key];
         final qty = ingredient.qty * factor;
         if (existing == null) {
-          grouped[key] = WeeklyShoppingEntry(
-            key: key,
-            name: ingredient.name,
-            qty: qty,
-            unit: ingredient.unit,
-            purchased: weeklyPurchased.contains(key),
-            recipes: <String>{recipe.title},
-          );
+          grouped[key] = WeeklyShoppingEntry(key:key,name:ingredient.name,qty:qty,unit:ingredient.unit,purchased:weeklyPurchased.contains(key),recipes:<String>{recipe.title});
         } else {
-          existing.qty += qty;
-          existing.recipes.add(recipe.title);
-          existing.purchased = weeklyPurchased.contains(key);
+          existing.qty += qty; existing.recipes.add(recipe.title); existing.purchased = weeklyPurchased.contains(key);
         }
       }
     }
-    final result = grouped.values.toList();
-    result.sort((a,b) {
-      if (a.purchased != b.purchased) return a.purchased ? 1 : -1;
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    });
+    // V13: déduire le stock non expiré quand nom + unité correspondent.
+    for (final item in grouped.values) {
+      final wanted=item.name.trim().toLowerCase(); final unit=item.unit.trim().toLowerCase();
+      var available=0.0;
+      for(final p in pantryProducts){
+        final pn=p.name.trim().toLowerCase(); final pu=p.unit.trim().toLowerCase();
+        final sameName=pn==wanted || pn.contains(wanted) || wanted.contains(pn);
+        if(p.daysLeft>=0 && sameName && pu==unit) available+=p.qty;
+      }
+      item.qty=(item.qty-available).clamp(0,double.infinity).toDouble();
+    }
+    final result = grouped.values.where((e)=>e.qty>0.001).toList();
+    result.sort((a,b) { if (a.purchased != b.purchased) return a.purchased ? 1 : -1; return a.name.toLowerCase().compareTo(b.name.toLowerCase()); });
     return result;
   }
 
@@ -766,42 +784,71 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int index = 0;
+  final _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
+
+  Widget _tabNavigator(int tab) {
+    return Navigator(
+      key: _navigatorKeys[tab],
+      onGenerateRoute: (_) => MaterialPageRoute(builder: (context) {
+        switch (tab) {
+          case 0:
+            return HomePage(
+              store: widget.store,
+              onAdd: () => openEditor(context, widget.store),
+              onWeekTap: () => setState(() => index = 1),
+              onShoppingTap: () => setState(() => index = 2),
+            );
+          case 1: return MealPlannerPage(store: widget.store);
+          case 2: return ShoppingPage(store: widget.store);
+          case 3: return RecipeLibraryPage(store: widget.store);
+          default: return MorePage(store: widget.store);
+        }
+      }),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      HomePage(store: widget.store, onAdd: () => openEditor(context, widget.store)),
-      MealPlannerPage(store: widget.store),
-      ShoppingPage(store: widget.store),
-      RecipeLibraryPage(store: widget.store),
-      MorePage(store: widget.store),
-    ];
-    return Scaffold(
-      body: IndexedStack(index: index, children: pages),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-          child: Container(
-            decoration: BoxDecoration(
-              color: C.card,
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: C.line),
-              boxShadow: const [BoxShadow(color: Color(0x16000000), blurRadius: 28, offset: Offset(0, 12))],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(30),
-              child: NavigationBar(
-                selectedIndex: index,
-                height: 70,
-                onDestinationSelected: (i) => setState(() => index = i),
-                destinations: const [
-                  NavigationDestination(icon: Icon(Icons.restaurant_menu_outlined), selectedIcon: Icon(Icons.restaurant_menu_rounded), label: 'Accueil'),
-                  NavigationDestination(icon: Icon(Icons.calendar_month_outlined), selectedIcon: Icon(Icons.calendar_month_rounded), label: 'Semaine'),
-                  NavigationDestination(icon: Icon(Icons.shopping_bag_outlined), selectedIcon: Icon(Icons.shopping_bag_rounded), label: 'Courses'),
-                  NavigationDestination(icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book_rounded), label: 'Bibliothèque'),
-                  NavigationDestination(icon: Icon(Icons.grid_view_rounded), selectedIcon: Icon(Icons.dashboard_customize_rounded), label: 'Plus'),
-                ],
+    return WillPopScope(
+      onWillPop: () async {
+        final nav = _navigatorKeys[index].currentState;
+        if (nav != null && nav.canPop()) { nav.pop(); return false; }
+        if (index != 0) { setState(() => index = 0); return false; }
+        return true;
+      },
+      child: Scaffold(
+        body: IndexedStack(index: index, children: List.generate(5, _tabNavigator)),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: C.card,
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: C.line),
+                boxShadow: const [BoxShadow(color: Color(0x16000000), blurRadius: 28, offset: Offset(0, 12))],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(30),
+                child: NavigationBar(
+                  selectedIndex: index,
+                  height: 70,
+                  onDestinationSelected: (i) {
+                    if (i == index) {
+                      _navigatorKeys[i].currentState?.popUntil((r) => r.isFirst);
+                    } else {
+                      setState(() => index = i);
+                    }
+                  },
+                  destinations: const [
+                    NavigationDestination(icon: Icon(Icons.restaurant_menu_outlined), selectedIcon: Icon(Icons.restaurant_menu_rounded), label: 'Accueil'),
+                    NavigationDestination(icon: Icon(Icons.calendar_month_outlined), selectedIcon: Icon(Icons.calendar_month_rounded), label: 'Semaine'),
+                    NavigationDestination(icon: Icon(Icons.shopping_bag_outlined), selectedIcon: Icon(Icons.shopping_bag_rounded), label: 'Courses'),
+                    NavigationDestination(icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book_rounded), label: 'Bibliothèque'),
+                    NavigationDestination(icon: Icon(Icons.grid_view_rounded), selectedIcon: Icon(Icons.dashboard_customize_rounded), label: 'Plus'),
+                  ],
+                ),
               ),
             ),
           ),
@@ -814,7 +861,9 @@ class _MainShellState extends State<MainShell> {
 class HomePage extends StatefulWidget {
   final Store store;
   final VoidCallback onAdd;
-  const HomePage({super.key, required this.store, required this.onAdd});
+  final VoidCallback onWeekTap;
+  final VoidCallback onShoppingTap;
+  const HomePage({super.key, required this.store, required this.onAdd, required this.onWeekTap, required this.onShoppingTap});
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -1019,19 +1068,24 @@ class _HomePageState extends State<HomePage> {
     final items = widget.store.weeklyShoppingEntries();
     final bought = items.where((e) => e.purchased).length;
     final planned = widget.store.mealPlan.values.where((e) => e.isNotEmpty).length;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(24), border: Border.all(color: C.line)),
-      child: Row(children: [
-        Container(width: 48, height: 48, decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(16)), child: const Icon(Icons.shopping_cart_checkout_rounded, color: C.green)),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Cette semaine', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-          const SizedBox(height: 3),
-          Text('$planned repas · $bought/${items.length} courses cochées', style: const TextStyle(color: C.muted, fontWeight: FontWeight.w700, fontSize: 12.5)),
-        ])),
-        const Icon(Icons.arrow_forward_ios_rounded, size: 15, color: C.muted),
-      ]),
+    final urgent = widget.store.pantryProducts.where((p) => p.daysLeft >= 0 && p.daysLeft <= 3).length;
+    return InkWell(
+      onTap: widget.onWeekTap,
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(24), border: Border.all(color: C.line)),
+        child: Row(children: [
+          Container(width: 48, height: 48, decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(16)), child: const Icon(Icons.calendar_month_rounded, color: C.green)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Cette semaine', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+            const SizedBox(height: 3),
+            Text('$planned repas · $bought/${items.length} courses · $urgent produit(s) urgent(s)', style: const TextStyle(color: C.muted, fontWeight: FontWeight.w700, fontSize: 12.5)),
+          ])),
+          const Icon(Icons.arrow_forward_ios_rounded, size: 15, color: C.muted),
+        ]),
+      ),
     );
   }
 
@@ -1527,7 +1581,7 @@ class _ShoppingPageState extends State<ShoppingPage> {
         const SizedBox(width: 12),
         const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Panier intelligent', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w900)),
-          Text('Quantités cumulées de toute la semaine', style: TextStyle(color: Color(0xFFD9E4DD), fontWeight: FontWeight.w700)),
+          Text('Quantités de la semaine · stock du frigo déjà déduit', style: TextStyle(color: Color(0xFFD9E4DD), fontWeight: FontWeight.w700)),
         ])),
       ]),
       const SizedBox(height: 18),
@@ -2175,7 +2229,39 @@ class LibraryRecipePreviewPage extends StatelessWidget {
 
 Ingredient _bi(String name, num qty, String unit) => Ingredient(name: name, qty: qty.toDouble(), unit: unit);
 CookStep _bs(String title, int minutes, {int temp = 0, String note = '', String type = 'Préparation'}) => CookStep(title: title, minutes: minutes, temp: temp, note: note, type: type);
-Recipe _br(String id, String title, String cuisine, String category, int minutes, int servings, List<Ingredient> ingredients, List<CookStep> steps, {String difficulty = 'Facile', int rating = 5, int temp = 0, List<String> tags = const []}) => Recipe(id: id, title: title, cuisine: cuisine, category: category, minutes: minutes, servings: servings, ingredients: ingredients, steps: steps, difficulty: difficulty, rating: rating, temp: temp, tags: tags);
+String _foodImage(String key) {
+  const images = {
+    'tajine':'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=900&q=80',
+    'soup':'https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=900&q=80',
+    'pasta':'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?auto=format&fit=crop&w=900&q=80',
+    'pizza':'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=900&q=80',
+    'salad':'https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=900&q=80',
+    'rice':'https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=900&q=80',
+    'breakfast':'https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?auto=format&fit=crop&w=900&q=80',
+    'dessert':'https://images.unsplash.com/photo-1551024506-0bccd828d307?auto=format&fit=crop&w=900&q=80',
+    'chicken':'https://images.unsplash.com/photo-1532550907401-a500c9a57435?auto=format&fit=crop&w=900&q=80',
+    'fish':'https://images.unsplash.com/photo-1467003909585-2f8a72700288?auto=format&fit=crop&w=900&q=80',
+    'bowl':'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=900&q=80',
+    'bread':'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=900&q=80',
+  };
+  return images[key] ?? images['bowl']!;
+}
+String _autoFoodKey(String title, String category) {
+  final t='${title.toLowerCase()} ${category.toLowerCase()}';
+  if(t.contains('tajine')||t.contains('couscous')) return 'tajine';
+  if(t.contains('soupe')||t.contains('harira')) return 'soup';
+  if(t.contains('pasta')||t.contains('spaghetti')||t.contains('penne')||t.contains('lasagne')) return 'pasta';
+  if(t.contains('pizza')) return 'pizza';
+  if(t.contains('salade')) return 'salad';
+  if(t.contains('riz')||t.contains('paella')) return 'rice';
+  if(t.contains('petit')||t.contains('pancake')||t.contains('crêpe')||t.contains('omelette')) return 'breakfast';
+  if(t.contains('dessert')||t.contains('brownie')||t.contains('tiramisu')||t.contains('cake')) return 'dessert';
+  if(t.contains('saumon')||t.contains('poisson')) return 'fish';
+  if(t.contains('poulet')||t.contains('chicken')) return 'chicken';
+  if(t.contains('pain')||t.contains('naan')) return 'bread';
+  return 'bowl';
+}
+Recipe _br(String id, String title, String cuisine, String category, int minutes, int servings, List<Ingredient> ingredients, List<CookStep> steps, {String difficulty = 'Facile', int rating = 5, int temp = 0, List<String> tags = const [], String imageKey = ''}) => Recipe(id: id, title: title, cuisine: cuisine, category: category, minutes: minutes, servings: servings, ingredients: ingredients, steps: steps, difficulty: difficulty, rating: rating, temp: temp, tags: tags, imagePath: _foodImage(imageKey.isEmpty ? _autoFoodKey(title, category) : imageKey));
 
 List<Recipe> builtInRecipeLibrary() => [
   _br('lib_ma_tajine_kefta','Tajine de kefta aux œufs','Marocaine','Tajines',45,4,[ _bi('Viande hachée',500,'g'),_bi('Tomates',5,'pièces'),_bi('Oignon',1,'pièce'),_bi('Œufs',4,'pièces'),_bi('Persil',0.5,'bouquet'),_bi('Cumin',1,'cuillère'),_bi('Paprika',1,'cuillère'),_bi('Huile d’olive',2,'cuillères')],[ _bs('Préparer la sauce tomate avec oignon et épices',15,type:'Cuisson'),_bs('Former les boulettes de kefta et les ajouter',18,type:'Cuisson'),_bs('Casser les œufs sur le dessus et terminer à couvert',10,type:'Cuisson')],difficulty:'Facile',tags:['familial','tajine','viande']),
@@ -2207,6 +2293,23 @@ List<Recipe> builtInRecipeLibrary() => [
   _br('lib_turk_lentil','Soupe de lentilles turque','Turque','Soupes',40,5,[ _bi('Lentilles corail',300,'g'),_bi('Carotte',1,'pièce'),_bi('Pomme de terre',1,'pièce'),_bi('Oignon',1,'pièce'),_bi('Concentré de tomate',1,'cuillère'),_bi('Bouillon',1,'L')],[ _bs('Faire revenir oignon et légumes',8,type:'Cuisson'),_bs('Ajouter lentilles et bouillon puis cuire',25,type:'Cuisson'),_bs('Mixer finement et rectifier l’assaisonnement',5,type:'Mixer')],tags:['soupe','économique','lentilles']),
   _br('lib_leban_hummus','Houmous maison','Libanaise','Entrées',15,6,[ _bi('Pois chiches cuits',500,'g'),_bi('Tahini',80,'g'),_bi('Citron',2,'pièces'),_bi('Ail',1,'gousse'),_bi('Huile d’olive',3,'cuillères')],[ _bs('Mixer pois chiches, tahini, citron et ail',8,type:'Mixer'),_bs('Ajuster la texture avec un peu d’eau puis servir avec huile',4)],tags:['végétarien','apéritif','rapide']),
   _br('lib_us_pancakes','Pancakes moelleux','Américaine','Petit-déj',25,4,[ _bi('Farine',250,'g'),_bi('Lait',300,'ml'),_bi('Œufs',2,'pièces'),_bi('Sucre',30,'g'),_bi('Levure chimique',10,'g'),_bi('Beurre',30,'g')],[ _bs('Mélanger les ingrédients secs puis liquides',7),_bs('Laisser reposer la pâte',5,type:'Repos'),_bs('Cuire les pancakes à la poêle',12,type:'Cuisson')],tags:['brunch','enfants','goûter']),
+  _br('lib_ma_rfissa','Rfissa au poulet','Marocaine','Plats',95,6,[_bi('Poulet',1,'pièce'),_bi('Msemmen',8,'pièces'),_bi('Lentilles',180,'g'),_bi('Oignons',4,'pièces'),_bi('Fenugrec',1,'cuillère')],[_bs('Cuire poulet, oignons et épices',45,type:'Cuisson'),_bs('Ajouter lentilles et fenugrec',25,type:'Cuisson'),_bs('Dresser sur le msemmen',10)],difficulty:'Moyen',tags:['tradition','famille']),
+  _br('lib_ma_pastilla','Pastilla poulet amandes','Marocaine','Plats',100,8,[_bi('Poulet',1,'kg'),_bi('Feuilles de brick',12,'pièces'),_bi('Amandes',250,'g'),_bi('Œufs',6,'pièces'),_bi('Oignons',4,'pièces')],[_bs('Cuire et effilocher le poulet',40,type:'Cuisson'),_bs('Préparer farce œufs-amandes',20,type:'Cuisson'),_bs('Monter puis cuire au four',30,temp:190,type:'Four')],difficulty:'Avancé',tags:['fête','tradition']),
+  _br('lib_it_pizza','Pizza Margherita','Italienne','Plats',55,4,[_bi('Farine',500,'g'),_bi('Levure boulangère',7,'g'),_bi('Tomates',400,'g'),_bi('Mozzarella',250,'g'),_bi('Basilic',1,'bouquet')],[_bs('Préparer et lever la pâte',25,type:'Repos'),_bs('Étaler et garnir',10),_bs('Cuire à four très chaud',12,temp:240,type:'Four')],tags:['pizza','famille'],imageKey:'pizza'),
+  _br('lib_it_risotto','Risotto champignons','Italienne','Plats',40,4,[_bi('Riz arborio',320,'g'),_bi('Champignons',400,'g'),_bi('Bouillon',1,'L'),_bi('Parmesan',90,'g'),_bi('Oignon',1,'pièce')],[_bs('Faire revenir oignon et champignons',10,type:'Cuisson'),_bs('Nacrer le riz puis mouiller progressivement',25,type:'Cuisson'),_bs('Ajouter parmesan',3)],tags:['crémeux','riz']),
+  _br('lib_fr_gratin','Gratin dauphinois','Française','Plats',70,6,[_bi('Pommes de terre',1.2,'kg'),_bi('Crème',400,'ml'),_bi('Lait',250,'ml'),_bi('Ail',2,'gousses')],[_bs('Trancher les pommes de terre',12,type:'Couper'),_bs('Monter le gratin',8),_bs('Cuire au four',50,temp:180,type:'Four')],tags:['four','famille']),
+  _br('lib_fr_chicken','Poulet rôti aux herbes','Française','Plats',85,6,[_bi('Poulet entier',1.5,'kg'),_bi('Pommes de terre',1,'kg'),_bi('Ail',6,'gousses'),_bi('Herbes',2,'cuillères')],[_bs('Assaisonner le poulet',10),_bs('Ajouter les pommes de terre',10),_bs('Rôtir',60,temp:190,type:'Four')],tags:['dimanche','four'],imageKey:'chicken'),
+  _br('lib_jp_sushi','Sushi maki saumon avocat','Japonaise','Plats',55,4,[_bi('Riz sushi',350,'g'),_bi('Saumon',250,'g'),_bi('Avocat',2,'pièces'),_bi('Nori',6,'feuilles')],[_bs('Cuire et assaisonner le riz',25,type:'Cuisson'),_bs('Découper garnitures',10,type:'Couper'),_bs('Rouler puis trancher',15)],difficulty:'Moyen',tags:['poisson','japon'],imageKey:'fish'),
+  _br('lib_th_curry','Curry vert thaï au poulet','Thaïlandaise','Plats',35,4,[_bi('Poulet',500,'g'),_bi('Lait de coco',400,'ml'),_bi('Pâte curry vert',2,'cuillères'),_bi('Courgette',1,'pièce'),_bi('Riz jasmin',300,'g')],[_bs('Cuire le riz',15,type:'Cuisson'),_bs('Faire revenir curry et poulet',8,type:'Cuisson'),_bs('Ajouter coco et légumes',12,type:'Cuisson')],tags:['curry','rapide'],imageKey:'chicken'),
+  _br('lib_leban_taboule','Taboulé libanais','Libanaise','Salades',25,4,[_bi('Persil',2,'bouquets'),_bi('Tomates',4,'pièces'),_bi('Boulgour',80,'g'),_bi('Citron',2,'pièces'),_bi('Menthe',0.5,'bouquet')],[_bs('Réhydrater le boulgour',10),_bs('Hacher herbes et légumes',10,type:'Couper'),_bs('Assaisonner',3)],tags:['frais','végétarien'],imageKey:'salad'),
+  _br('lib_turk_kofte','Köfte grillées','Turque','Plats',35,4,[_bi('Viande hachée',600,'g'),_bi('Oignon',1,'pièce'),_bi('Persil',0.5,'bouquet'),_bi('Paprika',1,'cuillère')],[_bs('Mélanger et former les köfte',12),_bs('Griller',15,type:'Cuisson'),_bs('Servir avec salade',5)],tags:['grill','viande']),
+  _br('lib_gr_moussaka','Moussaka grecque','Grecque','Plats',90,6,[_bi('Aubergines',3,'pièces'),_bi('Viande hachée',600,'g'),_bi('Tomates',500,'g'),_bi('Béchamel',500,'ml')],[_bs('Griller les aubergines',20,type:'Cuisson'),_bs('Préparer la sauce viande',25,type:'Cuisson'),_bs('Monter puis gratiner',35,temp:190,type:'Four')],difficulty:'Moyen',tags:['four','grecque']),
+  _br('lib_mx_guacamole','Guacamole maison','Mexicaine','Entrées',12,4,[_bi('Avocats',3,'pièces'),_bi('Tomate',1,'pièce'),_bi('Citron vert',1,'pièce'),_bi('Oignon rouge',0.5,'pièce')],[_bs('Écraser les avocats',4),_bs('Ajouter tomate, oignon et citron',5)],tags:['rapide','apéritif'],imageKey:'salad'),
+  _br('lib_med_shakshuka','Shakshuka aux œufs','Méditerranéenne','Plats',30,4,[_bi('Tomates',6,'pièces'),_bi('Œufs',6,'pièces'),_bi('Poivron',1,'pièce'),_bi('Oignon',1,'pièce')],[_bs('Cuire la sauce tomate-poivron',18,type:'Cuisson'),_bs('Ajouter les œufs et couvrir',8,type:'Cuisson')],tags:['œufs','rapide']),
+  _br('lib_healthy_soup','Velouté courgette pois chiches','Healthy','Soupes',30,4,[_bi('Courgettes',4,'pièces'),_bi('Pois chiches',250,'g'),_bi('Oignon',1,'pièce'),_bi('Bouillon',800,'ml')],[_bs('Cuire les légumes',20,type:'Cuisson'),_bs('Mixer avec les pois chiches',5,type:'Mixer')],tags:['healthy','protéiné'],imageKey:'soup'),
+  _br('lib_breakfast_frenchtoast','Pain perdu fruits rouges','Petit-déjeuner','Petit-déj',20,4,[_bi('Pain',8,'tranches'),_bi('Œufs',3,'pièces'),_bi('Lait',250,'ml'),_bi('Fruits rouges',200,'g')],[_bs('Battre œufs et lait',4),_bs('Tremper puis dorer le pain',10,type:'Cuisson'),_bs('Servir avec fruits',3)],tags:['brunch','anti-gaspi'],imageKey:'breakfast'),
+  _br('lib_dess_cheesecake','Cheesecake sans cuisson','Américaine','Desserts',30,8,[_bi('Biscuits',250,'g'),_bi('Beurre',100,'g'),_bi('Fromage frais',500,'g'),_bi('Crème',250,'ml')],[_bs('Préparer la base biscuits',8),_bs('Préparer la crème',10),_bs('Réfrigérer',1,type:'Repos')],tags:['dessert','sans cuisson'],imageKey:'dessert'),
+  _br('lib_dess_mousse','Mousse au chocolat','Française','Desserts',20,6,[_bi('Chocolat noir',200,'g'),_bi('Œufs',6,'pièces')],[_bs('Faire fondre le chocolat',5,type:'Cuisson'),_bs('Incorporer les blancs montés',10),_bs('Réfrigérer',1,type:'Repos')],tags:['chocolat','simple'],imageKey:'dessert'),
 ];
 
 class FavoritesPage extends StatelessWidget {
@@ -2237,11 +2340,12 @@ class MorePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Plus', style: TextStyle(fontWeight: FontWeight.w800))),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
-        premiumNote(Icons.workspace_premium_rounded, 'Kitchen Assistant V12', 'Planning familial, courses automatiques, bibliothèque multi-cuisines et cuisson guidée dans une expérience simple.'),
+        premiumNote(Icons.workspace_premium_rounded, 'Kitchen Assistant V13', 'Planning familial, courses automatiques, frigo intelligent, anti-gaspi et bibliothèque enrichie dans une expérience simple.'),
         quickAction(context, Icons.auto_awesome_rounded, 'Smart Kitchen', 'Portions, timeline, recettes faisables et lancement cuisson', SmartKitchenPage(store: store)),
         quickAction(context, Icons.menu_book_rounded, 'Bibliothèque recettes', 'Recettes multi-cuisines prêtes à importer', RecipeLibraryPage(store: store)),
         quickAction(context, Icons.favorite_rounded, 'Favoris', 'Tes recettes préférées', FavoritesPage(store: store)),
         quickAction(context, Icons.kitchen_rounded, 'Frigo & péremptions', 'Scanner les dates, suivre les produits et recevoir des alertes', PantryExpiryPage(store: store)),
+        quickAction(context, Icons.eco_rounded, 'Anti-gaspi intelligent', 'Priorise les produits urgents et trouve quoi cuisiner avec', WasteRescuePage(store: store)),
         quickAction(context, Icons.shopping_basket_rounded, 'Courses de la semaine', 'Quantités cumulées + suivi des achats', ShoppingPage(store: store)),
         quickAction(context, Icons.insights_rounded, 'Dashboard', 'Statistiques et suivi cuisine', StatsPage(store: store)),
         quickAction(context, Icons.calendar_month_rounded, 'Repas de la semaine', 'Planning + rappels décongélation', MealPlannerPage(store: store)),
@@ -2329,7 +2433,7 @@ class _PantryProductEditorState extends State<PantryProductEditor>{
   @override void dispose(){name.dispose();qty.dispose();super.dispose();}
 
   @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(widget.existing==null?'Ajouter au frigo':'Modifier le produit',style:const TextStyle(fontWeight:FontWeight.w900))),body:ListView(padding:const EdgeInsets.fromLTRB(20,8,20,110),children:[
-    Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(gradient:const LinearGradient(colors:[C.greenDark,C.green]),borderRadius:BorderRadius.circular(28)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Scanner la date',style:TextStyle(color:Colors.white,fontSize:21,fontWeight:FontWeight.w900)),const SizedBox(height:7),const Text('Cadre bien la mention EXP / DLC / DDM ou la date imprimée.',style:TextStyle(color:Colors.white70,fontWeight:FontWeight.w700)),const SizedBox(height:16),SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:scanning?null:_scan,icon:scanning?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.camera_alt_rounded),label:Text(scanning?'Lecture en cours…':'Ouvrir la caméra'),style:FilledButton.styleFrom(backgroundColor:C.gold,foregroundColor:C.ink,padding:const EdgeInsets.symmetric(vertical:15)))) ,if(scanMessage.isNotEmpty)...[const SizedBox(height:10),Text(scanMessage,style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w700,fontSize:12))]])),
+    Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(gradient:const LinearGradient(colors:[C.greenDark,C.green]),borderRadius:BorderRadius.circular(28)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Scanner la date',style:TextStyle(color:Colors.white,fontSize:21,fontWeight:FontWeight.w900)),const SizedBox(height:7),const Text('Cadre bien la mention EXP / DLC / DDM ou la date imprimée.',style:TextStyle(color:Colors.white70,fontWeight:FontWeight.w700)),const SizedBox(height:16),Row(children:[Expanded(child:FilledButton.icon(onPressed:scanning?null:()=>_scan(ImageSource.camera),icon:scanning?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.camera_alt_rounded),label:Text(scanning?'Lecture…':'Caméra'),style:FilledButton.styleFrom(backgroundColor:C.gold,foregroundColor:C.ink,padding:const EdgeInsets.symmetric(vertical:15)))),const SizedBox(width:9),Expanded(child:FilledButton.icon(onPressed:scanning?null:()=>_scan(ImageSource.gallery),icon:const Icon(Icons.photo_library_rounded),label:const Text('Galerie'),style:FilledButton.styleFrom(backgroundColor:Colors.white,foregroundColor:C.greenDark,padding:const EdgeInsets.symmetric(vertical:15))))]),const SizedBox(height:9),const Row(children:[Icon(Icons.center_focus_strong_rounded,color:Colors.white70,size:17),SizedBox(width:7),Expanded(child:Text('Astuce : rapproche-toi, évite les reflets et remplis l’image avec la date.',style:TextStyle(color:Colors.white70,fontWeight:FontWeight.w700,fontSize:11.5)))]),if(scanMessage.isNotEmpty)...[const SizedBox(height:10),Text(scanMessage,style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w700,fontSize:12))]])),
     const SizedBox(height:18),TextField(controller:name,decoration:inputDecoration('Nom du produit').copyWith(prefixIcon:const Icon(Icons.inventory_2_outlined))),const SizedBox(height:12),
     Row(children:[Expanded(child:TextField(controller:qty,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:inputDecoration('Quantité'))),const SizedBox(width:10),Expanded(child:DropdownButtonFormField<String>(value:unit,items:units.map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>unit=v!),decoration:inputDecoration('Unité')))]),const SizedBox(height:12),
     DropdownButtonFormField<String>(value:cats.contains(category)?category:'Autres',items:cats.map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>category=v!),decoration:inputDecoration('Catégorie')),const SizedBox(height:12),
@@ -2340,22 +2444,46 @@ class _PantryProductEditorState extends State<PantryProductEditor>{
   String _date(DateTime d)=>'${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')}/${d.year}';
   Future<void> _pickDate() async{final d=await showDatePicker(context:context,initialDate:expiry??DateTime.now().add(const Duration(days:7)),firstDate:DateTime.now().subtract(const Duration(days:365)),lastDate:DateTime.now().add(const Duration(days:3650)));if(d!=null)setState(()=>expiry=d);}
 
-  Future<void> _scan() async{
-    final x=await picker.pickImage(source:ImageSource.camera,imageQuality:92,maxWidth:2200);
+  Future<void> _scan(ImageSource source) async{
+    final x=await picker.pickImage(source:source,imageQuality:100,maxWidth:3200,maxHeight:3200);
     if(x==null)return;
-    setState((){scanning=true;scanMessage='Analyse de l’étiquette…';});
+    setState((){scanning=true;scanMessage='Analyse haute précision de l’étiquette…';});
     final recognizer=TextRecognizer(script:TextRecognitionScript.latin);
     try{
       final result=await recognizer.processImage(InputImage.fromFilePath(x.path));
-      final dates=extractExpiryDates(result.text);
-      if(dates.isEmpty){setState(()=>scanMessage='Aucune date fiable détectée. Tu peux la choisir manuellement.');return;}
-      final now=DateTime.now();
-      dates.sort((a,b)=>a.compareTo(b));
-      final future=dates.where((d)=>!d.isBefore(DateTime(now.year,now.month,now.day).subtract(const Duration(days:1)))).toList();
-      final candidate=(future.isNotEmpty?future.first:dates.last);
-      if(mounted)setState((){expiry=candidate;scanMessage='Date détectée : ${_date(candidate)} ✓ Vérifie puis enregistre.';});
-    } catch(_){if(mounted)setState(()=>scanMessage='Lecture impossible sur cette photo. Reprends-la de plus près ou saisis la date.');}
+      final raw=result.text;
+      final priorityLines=raw.split(RegExp(r'[\n\r]+')).where((line){
+        final l=line.toLowerCase();
+        return l.contains('exp')||l.contains('dlc')||l.contains('ddm')||l.contains('best before')||l.contains('use by')||l.contains('consomm')||l.contains('pérem')||l.contains('perem');
+      }).join(' ');
+      final priority=extractExpiryDates(priorityLines);
+      final all=extractExpiryDates(raw);
+      final merged=<DateTime>[]; final seen=<String>{};
+      for(final d in [...priority,...all]){final k='${d.year}-${d.month}-${d.day}';if(seen.add(k))merged.add(d);}
+      if(merged.isEmpty){
+        if(mounted)setState(()=>scanMessage='Je n’ai pas trouvé de date fiable. Essaie une photo plus proche, sans reflet, ou saisis-la manuellement.');
+        return;
+      }
+      final now=DateTime.now(); final today=DateTime(now.year,now.month,now.day);
+      merged.sort((a,b)=>a.compareTo(b));
+      final candidates=merged.where((d)=>!d.isBefore(today.subtract(const Duration(days:30)))).toList();
+      final usable=candidates.isEmpty?merged:candidates;
+      DateTime? candidate;
+      if(priority.isNotEmpty){
+        candidate=priority.firstWhere((d)=>!d.isBefore(today.subtract(const Duration(days:1))),orElse:()=>priority.last);
+      } else if(usable.length==1){candidate=usable.first;}
+      else if(mounted){candidate=await _chooseDetectedDate(usable);}
+      if(candidate!=null&&mounted)setState((){expiry=candidate;scanMessage='Date retenue : ${_date(candidate!)} ✓ Vérifie puis enregistre.';});
+    } catch(e){if(mounted)setState(()=>scanMessage='Lecture impossible. Essaie depuis la galerie avec une photo nette, ou saisis la date.');}
     finally{await recognizer.close();if(mounted)setState(()=>scanning=false);}
+  }
+
+  Future<DateTime?> _chooseDetectedDate(List<DateTime> dates) async{
+    return showModalBottomSheet<DateTime>(context:context,showDragHandle:true,builder:(ctx)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,4,20,20),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+      const Text('Quelle est la date d’expiration ?',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
+      const SizedBox(height:6),const Text('Plusieurs dates ont été lues sur l’emballage. Choisis la DLC/DDM/EXP.',style:TextStyle(color:C.muted,fontWeight:FontWeight.w700)),
+      const SizedBox(height:14),...dates.take(6).map((d)=>ListTile(shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(18)),leading:const CircleAvatar(child:Icon(Icons.event_available_rounded)),title:Text(_date(d),style:const TextStyle(fontWeight:FontWeight.w900)),subtitle:Text(d.isBefore(DateTime.now())?'Date passée':'Dans ${d.difference(DateTime.now()).inDays+1} jour(s)'),trailing:const Icon(Icons.chevron_right_rounded),onTap:()=>Navigator.pop(ctx,d))),
+    ]))));
   }
 
   void _save(){
@@ -2379,7 +2507,7 @@ class _SmartKitchenPageState extends State<SmartKitchenPage> {
     final recipes = widget.store.recipes.where((r) => r.title.toLowerCase().contains(query.toLowerCase())).toList();
     final ready = [...recipes]..sort((a,b) => pantryScore(b).compareTo(pantryScore(a)));
     return Scaffold(
-      appBar: AppBar(title: const Text('Smart Kitchen V11', style: TextStyle(fontWeight: FontWeight.w900))),
+      appBar: AppBar(title: const Text('Smart Kitchen V13', style: TextStyle(fontWeight: FontWeight.w900))),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
         children: [
@@ -2518,58 +2646,46 @@ class _KitchenTimelineItem {
 class ConverterPage extends StatefulWidget {
   final Store store;
   const ConverterPage({super.key, required this.store});
-  @override
-  State<ConverterPage> createState() => _ConverterPageState();
+  @override State<ConverterPage> createState() => _ConverterPageState();
+}
+class _ConverterPageState extends State<ConverterPage> {
+  final qty = TextEditingController(text:'1');
+  String from='g', to='ml', ingredient='Eau / liquide';
+  String result='';
+  final units=['g','kg','ml','L','verre','tasse','cuillère à soupe','cuillère à café'];
+  final densities=<String,double>{'Eau / liquide':1.0,'Farine':0.53,'Sucre':0.85,'Sucre glace':0.56,'Riz cru':0.82,'Huile':0.92,'Lait':1.03,'Miel':1.42,'Beurre':0.91,'Cacao':0.50};
+  @override void initState(){super.initState();calculate();}
+  double _toMl(double value,String u){switch(u){case 'ml':return value;case 'L':return value*1000;case 'verre':return value*widget.store.settings.glassMl;case 'tasse':return value*240;case 'cuillère à soupe':return value*15;case 'cuillère à café':return value*5;case 'kg':return value*1000/(densities[ingredient]??1);case 'g':return value/(densities[ingredient]??1);default:return value;}}
+  double _fromMl(double ml,String u){switch(u){case 'ml':return ml;case 'L':return ml/1000;case 'verre':return ml/widget.store.settings.glassMl;case 'tasse':return ml/240;case 'cuillère à soupe':return ml/15;case 'cuillère à café':return ml/5;case 'kg':return ml*(densities[ingredient]??1)/1000;case 'g':return ml*(densities[ingredient]??1);default:return ml;}}
+  void calculate(){final q=double.tryParse(qty.text.replaceAll(',','.'))??0;final v=_fromMl(_toMl(q,from),to);result='${fmt(q)} $from  =  ${fmt(v)} $to';if(mounted)setState((){});}
+  @override Widget build(BuildContext context)=>Scaffold(
+    appBar:AppBar(title:const Text('Convertisseur Pro',style:TextStyle(fontWeight:FontWeight.w900))),
+    body:ListView(padding:const EdgeInsets.fromLTRB(20,0,20,110),children:[
+      Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(gradient:const LinearGradient(colors:[C.greenDark,C.green]),borderRadius:BorderRadius.circular(28)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Mesures sans prise de tête',style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),SizedBox(height:7),Text('Poids ↔ volume avec densité adaptée à l’ingrédient.',style:TextStyle(color:Colors.white70,fontWeight:FontWeight.w700))])),
+      const SizedBox(height:18),TextField(controller:qty,keyboardType:const TextInputType.numberWithOptions(decimal:true),onChanged:(_)=>calculate(),decoration:inputDecoration('Quantité')),
+      const SizedBox(height:12),DropdownButtonFormField<String>(value:ingredient,items:densities.keys.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v){ingredient=v!;calculate();},decoration:inputDecoration('Ingrédient / densité')),
+      const SizedBox(height:12),Row(children:[Expanded(child:DropdownButtonFormField<String>(value:from,items:units.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v){from=v!;calculate();},decoration:inputDecoration('De'))),const Padding(padding:EdgeInsets.symmetric(horizontal:8),child:Icon(Icons.swap_horiz_rounded,color:C.green)),Expanded(child:DropdownButtonFormField<String>(value:to,items:units.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v){to=v!;calculate();},decoration:inputDecoration('Vers')))]),
+      const SizedBox(height:18),Container(padding:const EdgeInsets.all(20),decoration:soft(radius:26),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Résultat',style:TextStyle(color:C.muted,fontWeight:FontWeight.w800)),const SizedBox(height:8),Text(result,style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900,color:C.ink)),const SizedBox(height:10),Text('Verre maison : ${widget.store.settings.glassMl} ml · tasse : 240 ml',style:const TextStyle(color:C.muted,fontWeight:FontWeight.w700))])),
+      const SizedBox(height:16),premiumNote(Icons.info_outline_rounded,'Conversion culinaire','Les conversions g ↔ ml restent approximatives car la densité varie selon la marque, le tassement et la température.'),
+    ]));
 }
 
-class _ConverterPageState extends State<ConverterPage> {
-  final qty = TextEditingController(text: '1');
-  String unit = 'verre';
-  String ingredient = 'Liquide';
-  String result = '';
-
-  @override
-  void initState() { super.initState(); calculate(); }
-
-  void calculate() {
-    final q = double.tryParse(qty.text.replaceAll(',', '.')) ?? 0;
-    final glass = widget.store.settings.glassMl.toDouble();
-    double ml;
-    switch (unit) {
-      case 'litre': ml = q * 1000; break;
-      case 'cuillère à soupe': ml = q * 15; break;
-      case 'cuillère à café': ml = q * 5; break;
-      case 'ml': ml = q; break;
-      default: ml = q * glass;
-    }
-    if (ingredient == 'Farine') {
-      final gramsLow = ml / glass * 120;
-      final gramsHigh = ml / glass * 160;
-      result = '≈ ${fmt(gramsLow)} à ${fmt(gramsHigh)} g de farine';
-    } else if (ingredient == 'Sucre') {
-      result = '≈ ${fmt(ml / glass * 180)} g de sucre';
-    } else {
-      result = '= ${fmt(ml)} ml = ${fmt(ml / 1000)} L = environ ${fmt(ml / glass)} verre(s)';
-    }
-    setState(() {});
+class WasteRescuePage extends StatelessWidget {
+  final Store store; const WasteRescuePage({super.key,required this.store});
+  @override Widget build(BuildContext context){
+    final urgent=[...store.pantryProducts.where((p)=>p.daysLeft<=5)]..sort((a,b)=>a.expiryDate.compareTo(b.expiryDate));
+    final recipes=[...store.recipes];
+    int score(Recipe r)=>r.ingredients.where((i)=>urgent.any((p)=>i.name.toLowerCase().contains(p.name.toLowerCase())||p.name.toLowerCase().contains(i.name.toLowerCase()))).length;
+    recipes.sort((a,b)=>score(b).compareTo(score(a)));
+    final matches=recipes.where((r)=>score(r)>0).take(12).toList();
+    return Scaffold(appBar:AppBar(title:const Text('Anti-gaspi intelligent',style:TextStyle(fontWeight:FontWeight.w900))),body:ListView(padding:const EdgeInsets.fromLTRB(20,0,20,110),children:[
+      Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:C.ink,borderRadius:BorderRadius.circular(28)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Row(children:[Icon(Icons.eco_rounded,color:C.gold),SizedBox(width:10),Text('À consommer d’abord',style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900))]),const SizedBox(height:8),Text('${urgent.length} produit(s) arrivent bientôt à leur date limite.',style:const TextStyle(color:Colors.white70,fontWeight:FontWeight.w700))])),
+      const SizedBox(height:18),if(urgent.isEmpty) premiumEmpty(Icons.eco_outlined,'Rien d’urgent','Ton frigo ne contient aucun produit à consommer dans les 5 prochains jours.'),
+      if(urgent.isNotEmpty)...[Wrap(spacing:8,runSpacing:8,children:urgent.take(10).map((p)=>Chip(avatar:const Icon(Icons.schedule_rounded,size:17),label:Text('${p.name} · ${p.daysLeft<0?'expiré':p.daysLeft==0?'aujourd’hui':'J-${p.daysLeft}'}'))).toList()),const SizedBox(height:20),const Text('Recettes recommandées',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),const SizedBox(height:12)],
+      ...matches.map((r)=>Container(margin:const EdgeInsets.only(bottom:12),decoration:soft(radius:24),child:ListTile(contentPadding:const EdgeInsets.all(10),leading:SizedBox(width:64,height:64,child:RecipeImage(recipe:r,radius:18)),title:Text(r.title,style:const TextStyle(fontWeight:FontWeight.w900)),subtitle:Text('${score(r)} produit(s) urgent(s) utilisable(s) · ${r.minutes} min'),trailing:const Icon(Icons.chevron_right_rounded),onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>DetailPage(store:store,recipe:r))))),),
+      if(urgent.isNotEmpty&&matches.isEmpty) premiumEmpty(Icons.search_off_rounded,'Pas encore de correspondance','Ajoute ou importe plus de recettes : l’assistant trouvera automatiquement celles qui utilisent tes produits urgents.'),
+    ]));
   }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Convertisseur', style: TextStyle(fontWeight: FontWeight.w800))),
-        body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
-          premiumNote(Icons.calculate_rounded, 'Calcul instantané', 'Le verre maison est réglé à ${widget.store.settings.glassMl} ml.'),
-          TextField(controller: qty, keyboardType: TextInputType.number, onChanged: (_) => calculate(), decoration: inputDecoration('Quantité')),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(value: unit, items: const ['verre','ml','litre','cuillère à soupe','cuillère à café'].map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v){unit=v??unit;calculate();}, decoration: inputDecoration('Unité')),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(value: ingredient, items: const ['Liquide','Farine','Sucre'].map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v){ingredient=v??ingredient;calculate();}, decoration: inputDecoration('Type')),
-          const SizedBox(height: 18),
-          Container(padding: const EdgeInsets.all(18), decoration: soft(radius: 26), child: Row(children: [const Icon(Icons.auto_awesome_rounded, color: C.gold), const SizedBox(width: 12), Expanded(child: Text(result, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)))])),
-          const SizedBox(height: 18),
-          const SettingTile(icon: Icons.local_drink_rounded, title: 'Repères utiles', sub: '1 verre ≈ 200 ml par défaut · 1 L ≈ 5 verres · 1 càs ≈ 15 ml · 1 càc ≈ 5 ml'),
-        ]),
-      );
 }
 
 class BackupInfoPage extends StatelessWidget {
@@ -2764,19 +2880,23 @@ class RecipeImage extends StatelessWidget {
   const RecipeImage({super.key, required this.recipe, this.radius = 28, this.height, this.onTap});
   @override
   Widget build(BuildContext context) {
-    final has = recipe.imagePath.isNotEmpty && File(recipe.imagePath).existsSync();
+    final isNetwork = recipe.imagePath.startsWith('http://') || recipe.imagePath.startsWith('https://');
+    final isLocal = recipe.imagePath.isNotEmpty && !isNetwork && File(recipe.imagePath).existsSync();
+    Widget fallback() => Stack(fit: StackFit.expand, children: [
+      CustomPaint(painter: FoodArtPainter(category: recipe.category)),
+      if (onTap != null) const Center(child: Icon(Icons.add_a_photo_rounded, color: Colors.white, size: 44)),
+    ]);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         height: height,
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(radius), gradient: foodGradient(recipe.category)),
         clipBehavior: Clip.antiAlias,
-        child: has
-            ? Image.file(File(recipe.imagePath), fit: BoxFit.cover, width: double.infinity)
-            : Stack(fit: StackFit.expand, children: [
-                CustomPaint(painter: FoodArtPainter(category: recipe.category)),
-                if (onTap != null) const Center(child: Icon(Icons.add_a_photo_rounded, color: Colors.white, size: 44)),
-              ]),
+        child: isNetwork
+            ? Image.network(recipe.imagePath, fit: BoxFit.cover, width: double.infinity, loadingBuilder:(c,w,p)=>p==null?w:Container(color:C.warmWhite,child:const Center(child:CircularProgressIndicator(strokeWidth:2))), errorBuilder:(_,__,___)=>fallback())
+            : isLocal
+                ? Image.file(File(recipe.imagePath), fit: BoxFit.cover, width: double.infinity)
+                : fallback(),
       ),
     );
   }
