@@ -65,6 +65,7 @@ jobs:
           manifest = Path('android/app/src/main/AndroidManifest.xml')
           m = manifest.read_text()
           for perm in [
+              '<uses-permission android:name="android.permission.CAMERA"/>',
               '<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>',
               '<uses-permission android:name="android.permission.VIBRATE"/>',
               '<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>',
@@ -120,5 +121,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: recette-alarm-v11-family-chef-premium-apk
+          name: recette-alarm-v12-smart-fridge-premium-apk
           path: build/app/outputs/flutter-apk/app-debug.apk

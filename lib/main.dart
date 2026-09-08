@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -20,6 +24,11 @@ Future<void> main() async {
   await notifications
       .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
       ?.requestNotificationsPermission();
+  tzdata.initializeTimeZones();
+  try {
+    final zone = await FlutterTimezone.getLocalTimezone();
+    tz.setLocalLocation(tz.getLocation(zone.identifier));
+  } catch (_) {}
   runApp(const RecetteAlarmApp());
 }
 
@@ -38,6 +47,88 @@ class C {
   static const red = Color(0xFFD95D59);
   static const line = Color(0xFFE8E2D9);
   static const warmWhite = Color(0xFFFFFAF3);
+}
+
+class PantryProduct {
+  String id;
+  String name;
+  double qty;
+  String unit;
+  String category;
+  DateTime expiryDate;
+  DateTime addedAt;
+  bool opened;
+
+  PantryProduct({
+    required this.id,
+    required this.name,
+    this.qty = 1,
+    this.unit = 'pièce',
+    this.category = 'Autres',
+    required this.expiryDate,
+    DateTime? addedAt,
+    this.opened = false,
+  }) : addedAt = addedAt ?? DateTime.now();
+
+  int get daysLeft {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final exp = DateTime(expiryDate.year, expiryDate.month, expiryDate.day);
+    return exp.difference(today).inDays;
+  }
+
+  Map<String,dynamic> toJson()=>{
+    'id':id,'name':name,'qty':qty,'unit':unit,'category':category,
+    'expiryDate':expiryDate.toIso8601String(),'addedAt':addedAt.toIso8601String(),'opened':opened,
+  };
+
+  factory PantryProduct.fromJson(Map<String,dynamic> j)=>PantryProduct(
+    id:j['id']??DateTime.now().microsecondsSinceEpoch.toString(),
+    name:j['name']??'',
+    qty:(j['qty'] as num? ?? 1).toDouble(),
+    unit:j['unit']??'pièce',
+    category:j['category']??'Autres',
+    expiryDate:DateTime.tryParse(j['expiryDate']??'') ?? DateTime.now(),
+    addedAt:DateTime.tryParse(j['addedAt']??''),
+    opened:j['opened']??false,
+  );
+}
+
+List<DateTime> extractExpiryDates(String text) {
+  final out=<DateTime>[];
+  final seen=<String>{};
+  void add(int y,int m,int d){
+    if(y<100) y += y < 70 ? 2000 : 1900;
+    try {
+      final dt=DateTime(y,m,d);
+      if(dt.year==y && dt.month==m && dt.day==d && y>=DateTime.now().year-1 && y<=DateTime.now().year+12){
+        final k='${dt.year}-${dt.month}-${dt.day}';
+        if(seen.add(k)) out.add(dt);
+      }
+    } catch(_){}
+  }
+  for(final m in RegExp(r'\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b').allMatches(text)){
+    add(int.parse(m.group(3)!),int.parse(m.group(2)!),int.parse(m.group(1)!));
+  }
+  for(final m in RegExp(r'\b(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b').allMatches(text)){
+    add(int.parse(m.group(1)!),int.parse(m.group(2)!),int.parse(m.group(3)!));
+  }
+  final months={
+    'jan':1,'janv':1,'janvier':1,'feb':2,'fev':2,'févr':2,'fevrier':2,'février':2,
+    'mar':3,'mars':3,'apr':4,'avr':4,'avril':4,'may':5,'mai':5,'jun':6,'juin':6,
+    'jul':7,'juil':7,'juillet':7,'aug':8,'aou':8,'août':8,'sep':9,'sept':9,'septembre':9,
+    'oct':10,'octobre':10,'nov':11,'novembre':11,'dec':12,'déc':12,'decembre':12,'décembre':12
+  };
+  final lower=text.toLowerCase();
+  final mr=RegExp(r'\b(\d{1,2})\s+(jan(?:v(?:ier)?)?|f[eé]v(?:r(?:ier)?)?|mars?|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[eé]c(?:embre)?)\s+(\d{2,4})\b');
+  for(final m in mr.allMatches(lower)){
+    final raw=m.group(2)!;
+    int? month;
+    for(final e in months.entries){ if(raw.startsWith(e.key)){month=e.value;break;} }
+    if(month!=null) add(int.parse(m.group(3)!),month,int.parse(m.group(1)!));
+  }
+  out.sort();
+  return out;
 }
 
 class Ingredient {
@@ -286,6 +377,7 @@ class Store extends ChangeNotifier {
   Map<String, int> mealServings = {};
   Set<String> weeklyPurchased = <String>{};
   bool weeklyShoppingReminder = false;
+  List<PantryProduct> pantryProducts = [];
   Map<String, String> categoryIcons = {};
   AppSettings settings = AppSettings();
 
@@ -299,6 +391,7 @@ class Store extends ChangeNotifier {
     final servingsRaw = sp.getString('meal_servings_v11');
     final purchasedRaw = sp.getString('weekly_purchased_v11');
     final reminderRaw = sp.getBool('weekly_shopping_reminder_v11');
+    final pantryRaw = sp.getString('pantry_products_v12');
     final catIconsRaw = sp.getString('category_icons_v1');
     if (settingsRaw != null) {
       settings = AppSettings.fromJson(jsonDecode(settingsRaw));
@@ -317,6 +410,7 @@ class Store extends ChangeNotifier {
       weeklyPurchased = Set<String>.from(jsonDecode(purchasedRaw));
     }
     weeklyShoppingReminder = reminderRaw ?? false;
+    if (pantryRaw != null) { pantryProducts = (jsonDecode(pantryRaw) as List).map((e)=>PantryProduct.fromJson(Map<String,dynamic>.from(e))).toList(); }
     final source = raw ?? oldRaw;
     if (source == null) {
       recipes = [sampleRecipe(), sampleDessert()];
@@ -338,6 +432,7 @@ class Store extends ChangeNotifier {
     await sp.setString('meal_servings_v11', jsonEncode(mealServings));
     await sp.setString('weekly_purchased_v11', jsonEncode(weeklyPurchased.toList()));
     await sp.setBool('weekly_shopping_reminder_v11', weeklyShoppingReminder);
+    await sp.setString('pantry_products_v12', jsonEncode(pantryProducts.map((e)=>e.toJson()).toList()));
     await sp.setString('category_icons_v1', jsonEncode(categoryIcons));
     if (settings.autoBackup) {
       await sp.setString('recette_alarm_auto_backup', exportJson());
@@ -371,6 +466,7 @@ class Store extends ChangeNotifier {
         'mealServings': mealServings,
         'weeklyPurchased': weeklyPurchased.toList(),
         'weeklyShoppingReminder': weeklyShoppingReminder,
+        'pantryProducts': pantryProducts.map((e)=>e.toJson()).toList(),
         'categoryIcons': categoryIcons,
         'recipes': recipes.map((e) => e.toJson()).toList(),
       });
@@ -385,6 +481,7 @@ class Store extends ChangeNotifier {
       if (data['mealServings'] is Map) { final x=Map<String,dynamic>.from(data['mealServings']); mealServings=x.map((k,v)=>MapEntry(k,(v as num).toInt())); }
       if (data['weeklyPurchased'] is List) weeklyPurchased = Set<String>.from(data['weeklyPurchased']);
       if (data['weeklyShoppingReminder'] is bool) weeklyShoppingReminder = data['weeklyShoppingReminder'];
+      if (data['pantryProducts'] is List) pantryProducts = (data['pantryProducts'] as List).map((e)=>PantryProduct.fromJson(Map<String,dynamic>.from(e))).toList();
       if (data['categoryIcons'] is Map) categoryIcons = Map<String, String>.from(data['categoryIcons']);
     } else if (data is List) {
       recipes = data.map((e) => Recipe.fromJson(e)).toList();
@@ -477,6 +574,51 @@ class Store extends ChangeNotifier {
     copy.importedFromLibrary = true;
     recipes.insert(0, copy);
     if (!categories.contains(copy.category)) categories.add(copy.category);
+    await save();
+  }
+
+  int _expiryNotificationBase(String id) => 5000 + (id.hashCode.abs() % 100000) * 10;
+
+  Future<void> _cancelExpiryAlerts(PantryProduct p) async {
+    final base=_expiryNotificationBase(p.id);
+    for(final x in [0,1,2]) { await notifications.cancel(base+x); }
+  }
+
+  Future<void> scheduleExpiryAlerts(PantryProduct p) async {
+    await _cancelExpiryAlerts(p);
+    const details=NotificationDetails(android:AndroidNotificationDetails(
+      'food_expiry_v12','Produits à consommer',
+      channelDescription:'Alertes avant et le jour de péremption des produits du frigo',
+      importance:Importance.high, priority:Priority.high,
+    ));
+    final now=tz.TZDateTime.now(tz.local);
+    final targets=[
+      (days:3,id:0,title:'À consommer bientôt 🥕',body:'${p.name} expire dans 3 jours.'),
+      (days:1,id:1,title:'À consommer demain ⚠️',body:'${p.name} expire demain.'),
+      (days:0,id:2,title:'Date limite aujourd’hui 🚨',body:'${p.name} arrive à expiration aujourd’hui.'),
+    ];
+    for(final t in targets){
+      final when=tz.TZDateTime(tz.local,p.expiryDate.year,p.expiryDate.month,p.expiryDate.day,9).subtract(Duration(days:t.days));
+      if(when.isAfter(now)){
+        await notifications.zonedSchedule(_expiryNotificationBase(p.id)+t.id,t.title,t.body,when,details,androidScheduleMode:AndroidScheduleMode.inexactAllowWhileIdle,uiLocalNotificationDateInterpretation:UILocalNotificationDateInterpretation.absoluteTime);
+      }
+    }
+    if(p.daysLeft<0){
+      await notifications.show(_expiryNotificationBase(p.id)+2,'Produit expiré 🚨','${p.name} est dépassé depuis ${p.daysLeft.abs()} jour(s).',details);
+    }
+  }
+
+  Future<void> upsertPantryProduct(PantryProduct p) async {
+    final i=pantryProducts.indexWhere((e)=>e.id==p.id);
+    if(i<0) pantryProducts.add(p); else pantryProducts[i]=p;
+    pantryProducts.sort((a,b)=>a.expiryDate.compareTo(b.expiryDate));
+    await scheduleExpiryAlerts(p);
+    await save();
+  }
+
+  Future<void> removePantryProduct(PantryProduct p) async {
+    await _cancelExpiryAlerts(p);
+    pantryProducts.removeWhere((e)=>e.id==p.id);
     await save();
   }
 
@@ -2095,10 +2237,11 @@ class MorePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Plus', style: TextStyle(fontWeight: FontWeight.w800))),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 110), children: [
-        premiumNote(Icons.workspace_premium_rounded, 'Kitchen Assistant V11', 'Planning familial, courses automatiques, bibliothèque multi-cuisines et cuisson guidée dans une expérience simple.'),
+        premiumNote(Icons.workspace_premium_rounded, 'Kitchen Assistant V12', 'Planning familial, courses automatiques, bibliothèque multi-cuisines et cuisson guidée dans une expérience simple.'),
         quickAction(context, Icons.auto_awesome_rounded, 'Smart Kitchen', 'Portions, timeline, recettes faisables et lancement cuisson', SmartKitchenPage(store: store)),
         quickAction(context, Icons.menu_book_rounded, 'Bibliothèque recettes', 'Recettes multi-cuisines prêtes à importer', RecipeLibraryPage(store: store)),
         quickAction(context, Icons.favorite_rounded, 'Favoris', 'Tes recettes préférées', FavoritesPage(store: store)),
+        quickAction(context, Icons.kitchen_rounded, 'Frigo & péremptions', 'Scanner les dates, suivre les produits et recevoir des alertes', PantryExpiryPage(store: store)),
         quickAction(context, Icons.shopping_basket_rounded, 'Courses de la semaine', 'Quantités cumulées + suivi des achats', ShoppingPage(store: store)),
         quickAction(context, Icons.insights_rounded, 'Dashboard', 'Statistiques et suivi cuisine', StatsPage(store: store)),
         quickAction(context, Icons.calendar_month_rounded, 'Repas de la semaine', 'Planning + rappels décongélation', MealPlannerPage(store: store)),
@@ -2112,6 +2255,115 @@ class MorePage extends StatelessWidget {
   }
 }
 
+
+class PantryExpiryPage extends StatefulWidget {
+  final Store store;
+  const PantryExpiryPage({super.key, required this.store});
+  @override State<PantryExpiryPage> createState()=>_PantryExpiryPageState();
+}
+
+class _PantryExpiryPageState extends State<PantryExpiryPage> {
+  String filter='Tous';
+  @override Widget build(BuildContext context){
+    final items=[...widget.store.pantryProducts]..sort((a,b)=>a.expiryDate.compareTo(b.expiryDate));
+    final visible=items.where((p)=>filter=='Tous'||(filter=='Urgent'&&p.daysLeft<=3)||(filter=='Expiré'&&p.daysLeft<0)||(filter=='OK'&&p.daysLeft>3)).toList();
+    final urgent=items.where((p)=>p.daysLeft>=0&&p.daysLeft<=3).length;
+    final expired=items.where((p)=>p.daysLeft<0).length;
+    return Scaffold(
+      appBar:AppBar(title:const Text('Frigo intelligent',style:TextStyle(fontWeight:FontWeight.w900))),
+      floatingActionButton:FloatingActionButton.extended(onPressed:()=>_openAdd(),backgroundColor:C.green,foregroundColor:Colors.white,icon:const Icon(Icons.document_scanner_rounded),label:const Text('Scanner produit')),
+      body:ListView(padding:const EdgeInsets.fromLTRB(20,4,20,110),children:[
+        Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:C.ink,borderRadius:BorderRadius.circular(30)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          const Row(children:[Icon(Icons.kitchen_rounded,color:C.gold,size:27),SizedBox(width:10),Expanded(child:Text('Rien ne se perd.',style:TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w900)))]),
+          const SizedBox(height:8),const Text('Scanne la date du produit. L’app te prévient 3 jours avant, la veille et le jour limite.',style:TextStyle(color:Color(0xFFF2E9DA),height:1.4,fontWeight:FontWeight.w700)),
+          const SizedBox(height:18),Row(children:[_metric('${items.length}','Produits'),const SizedBox(width:10),_metric('$urgent','Urgents'),const SizedBox(width:10),_metric('$expired','Expirés')])
+        ])),
+        const SizedBox(height:18),
+        SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:['Tous','Urgent','Expiré','OK'].map((x)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(x),selected:filter==x,onSelected:(_)=>setState(()=>filter=x)))).toList())),
+        const SizedBox(height:14),
+        if(visible.isEmpty) premiumEmpty(Icons.inventory_2_outlined,'Ton frigo est à jour','Ajoute un produit avec la caméra ou manuellement pour suivre sa date de péremption.'),
+        ...visible.map(_productCard),
+      ])
+    );
+  }
+
+  Widget _metric(String n,String label)=>Expanded(child:Container(padding:const EdgeInsets.symmetric(vertical:12),decoration:BoxDecoration(color:Colors.white.withOpacity(.08),borderRadius:BorderRadius.circular(18)),child:Column(children:[Text(n,style:const TextStyle(color:C.gold,fontSize:22,fontWeight:FontWeight.w900)),Text(label,style:const TextStyle(color:Colors.white70,fontSize:11,fontWeight:FontWeight.w700))])));
+
+  Widget _productCard(PantryProduct p){
+    final d=p.daysLeft;
+    final urgent=d<=3;
+    final status=d<0?'Expiré ${d.abs()}j':d==0?'Aujourd’hui':d==1?'Demain':'Dans $d jours';
+    final statusColor=d<0?C.red:urgent?C.terracotta:C.green;
+    return Container(margin:const EdgeInsets.only(bottom:12),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:C.card,borderRadius:BorderRadius.circular(24),border:Border.all(color:urgent?statusColor.withOpacity(.35):C.line)),child:Row(children:[
+      Container(width:52,height:52,decoration:BoxDecoration(color:statusColor.withOpacity(.10),borderRadius:BorderRadius.circular(17)),child:Icon(urgent?Icons.warning_amber_rounded:Icons.eco_rounded,color:statusColor)),
+      const SizedBox(width:13),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(p.name,style:const TextStyle(fontSize:16,fontWeight:FontWeight.w900)),const SizedBox(height:4),Text('${fmt(p.qty)} ${p.unit} · ${p.category}',style:const TextStyle(color:C.muted,fontWeight:FontWeight.w700,fontSize:12)),const SizedBox(height:6),Row(children:[Icon(Icons.event_rounded,size:15,color:statusColor),const SizedBox(width:5),Text('${_date(p.expiryDate)} · $status',style:TextStyle(color:statusColor,fontWeight:FontWeight.w900,fontSize:12))])])),
+      PopupMenuButton<String>(onSelected:(v){if(v=='edit')_openAdd(edit:p);if(v=='delete')widget.store.removePantryProduct(p).then((_)=>setState((){}));},itemBuilder:(_)=>const [PopupMenuItem(value:'edit',child:Text('Modifier')),PopupMenuItem(value:'delete',child:Text('Supprimer'))])
+    ]));
+  }
+
+  String _date(DateTime d)=>'${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')}/${d.year}';
+
+  Future<void> _openAdd({PantryProduct? edit}) async {
+    final result=await Navigator.push<PantryProduct>(context,MaterialPageRoute(builder:(_)=>PantryProductEditor(existing:edit)));
+    if(result!=null){await widget.store.upsertPantryProduct(result);if(mounted)setState((){});}
+  }
+}
+
+class PantryProductEditor extends StatefulWidget {
+  final PantryProduct? existing;
+  const PantryProductEditor({super.key,this.existing});
+  @override State<PantryProductEditor> createState()=>_PantryProductEditorState();
+}
+
+class _PantryProductEditorState extends State<PantryProductEditor>{
+  late final TextEditingController name;
+  late final TextEditingController qty;
+  String unit='pièce',category='Autres';
+  DateTime? expiry;
+  bool scanning=false;
+  String scanMessage='';
+  final picker=ImagePicker();
+  final units=['pièce','g','kg','ml','L','boîte','pot','sachet'];
+  final cats=['Fruits & légumes','Viande & poisson','Produits frais','Produits laitiers','Épicerie','Surgelé','Boissons','Autres'];
+  @override void initState(){super.initState();final p=widget.existing;name=TextEditingController(text:p?.name??'');qty=TextEditingController(text:p==null?'1':fmt(p.qty));unit=p?.unit??'pièce';category=p?.category??'Autres';expiry=p?.expiryDate;}
+  @override void dispose(){name.dispose();qty.dispose();super.dispose();}
+
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(widget.existing==null?'Ajouter au frigo':'Modifier le produit',style:const TextStyle(fontWeight:FontWeight.w900))),body:ListView(padding:const EdgeInsets.fromLTRB(20,8,20,110),children:[
+    Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(gradient:const LinearGradient(colors:[C.greenDark,C.green]),borderRadius:BorderRadius.circular(28)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Scanner la date',style:TextStyle(color:Colors.white,fontSize:21,fontWeight:FontWeight.w900)),const SizedBox(height:7),const Text('Cadre bien la mention EXP / DLC / DDM ou la date imprimée.',style:TextStyle(color:Colors.white70,fontWeight:FontWeight.w700)),const SizedBox(height:16),SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:scanning?null:_scan,icon:scanning?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.camera_alt_rounded),label:Text(scanning?'Lecture en cours…':'Ouvrir la caméra'),style:FilledButton.styleFrom(backgroundColor:C.gold,foregroundColor:C.ink,padding:const EdgeInsets.symmetric(vertical:15)))) ,if(scanMessage.isNotEmpty)...[const SizedBox(height:10),Text(scanMessage,style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w700,fontSize:12))]])),
+    const SizedBox(height:18),TextField(controller:name,decoration:inputDecoration('Nom du produit').copyWith(prefixIcon:const Icon(Icons.inventory_2_outlined))),const SizedBox(height:12),
+    Row(children:[Expanded(child:TextField(controller:qty,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:inputDecoration('Quantité'))),const SizedBox(width:10),Expanded(child:DropdownButtonFormField<String>(value:unit,items:units.map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>unit=v!),decoration:inputDecoration('Unité')))]),const SizedBox(height:12),
+    DropdownButtonFormField<String>(value:cats.contains(category)?category:'Autres',items:cats.map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>category=v!),decoration:inputDecoration('Catégorie')),const SizedBox(height:12),
+    InkWell(onTap:_pickDate,borderRadius:BorderRadius.circular(20),child:Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:C.card,borderRadius:BorderRadius.circular(20),border:Border.all(color:C.line)),child:Row(children:[const Icon(Icons.event_available_rounded,color:C.green),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Date d’expiration',style:TextStyle(fontSize:12,color:C.muted,fontWeight:FontWeight.w700)),Text(expiry==null?'Choisir une date':_date(expiry!),style:const TextStyle(fontSize:16,fontWeight:FontWeight.w900))])),const Icon(Icons.chevron_right_rounded)]))),
+    const SizedBox(height:22),FilledButton.icon(onPressed:_save,icon:const Icon(Icons.notifications_active_rounded),label:const Text('Enregistrer + activer les alertes'),style:FilledButton.styleFrom(backgroundColor:C.green,foregroundColor:Colors.white,padding:const EdgeInsets.symmetric(vertical:17))),
+  ]));
+
+  String _date(DateTime d)=>'${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')}/${d.year}';
+  Future<void> _pickDate() async{final d=await showDatePicker(context:context,initialDate:expiry??DateTime.now().add(const Duration(days:7)),firstDate:DateTime.now().subtract(const Duration(days:365)),lastDate:DateTime.now().add(const Duration(days:3650)));if(d!=null)setState(()=>expiry=d);}
+
+  Future<void> _scan() async{
+    final x=await picker.pickImage(source:ImageSource.camera,imageQuality:92,maxWidth:2200);
+    if(x==null)return;
+    setState((){scanning=true;scanMessage='Analyse de l’étiquette…';});
+    final recognizer=TextRecognizer(script:TextRecognitionScript.latin);
+    try{
+      final result=await recognizer.processImage(InputImage.fromFilePath(x.path));
+      final dates=extractExpiryDates(result.text);
+      if(dates.isEmpty){setState(()=>scanMessage='Aucune date fiable détectée. Tu peux la choisir manuellement.');return;}
+      final now=DateTime.now();
+      dates.sort((a,b)=>a.compareTo(b));
+      final future=dates.where((d)=>!d.isBefore(DateTime(now.year,now.month,now.day).subtract(const Duration(days:1)))).toList();
+      final candidate=(future.isNotEmpty?future.first:dates.last);
+      if(mounted)setState((){expiry=candidate;scanMessage='Date détectée : ${_date(candidate)} ✓ Vérifie puis enregistre.';});
+    } catch(_){if(mounted)setState(()=>scanMessage='Lecture impossible sur cette photo. Reprends-la de plus près ou saisis la date.');}
+    finally{await recognizer.close();if(mounted)setState(()=>scanning=false);}
+  }
+
+  void _save(){
+    if(name.text.trim().isEmpty||expiry==null){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ajoute le nom du produit et sa date.')));return;}
+    final q=double.tryParse(qty.text.replaceAll(',','.'))??1;
+    Navigator.pop(context,PantryProduct(id:widget.existing?.id??DateTime.now().microsecondsSinceEpoch.toString(),name:name.text.trim(),qty:q,unit:unit,category:category,expiryDate:expiry!,addedAt:widget.existing?.addedAt,opened:widget.existing?.opened??false));
+  }
+}
 
 class SmartKitchenPage extends StatefulWidget {
   final Store store;
